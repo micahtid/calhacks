@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { CHATS, TRANSACTIONS, type Chat } from "@/lib/data";
-import { DEMO_PROMPT, DEMO_TITLE } from "@/lib/demo";
 import { ChatView } from "./ChatView";
 import { NewChat } from "./NewChat";
 import { Settings } from "./Settings";
@@ -13,14 +12,15 @@ export function App() {
   const [view, setView] = useState<View>({ kind: "new" });
   const [chats, setChats] = useState<Chat[]>(CHATS);
 
-  // Every new chat is the scripted demo run until agents run on the backend.
-  const startChat = () => {
+  // Every new chat is a live Hunter run against the agent API. The title starts as the prompt and becomes
+  // the item and limit once Hunter has read the request.
+  const startChat = (prompt: string) => {
     const chat: Chat = {
       id: crypto.randomUUID(),
-      title: DEMO_TITLE,
+      title: prompt.length > 40 ? `${prompt.slice(0, 40)}…` : prompt,
       status: "searching",
-      demo: true,
-      messages: [{ role: "user", text: DEMO_PROMPT }],
+      live: { prompt },
+      messages: [{ role: "user", text: prompt }],
     };
     setChats((current) => [chat, ...current]);
     setView({ kind: "chat", id: chat.id });
@@ -41,7 +41,10 @@ export function App() {
             key={chat.id}
             chat={chat}
             onSend={(text) => update(chat.id, (c) => ({ messages: [...c.messages, { role: "user", text }] }))}
-            onRunDone={() => update(chat.id, () => ({ status: "bought" }))}
+            onTitle={(title) => update(chat.id, () => ({ title }))}
+            onRunDone={(run) =>
+              update(chat.id, (c) => ({ status: run.status ?? "stopped", live: c.live && { ...c.live, saved: run } }))
+            }
           />
         )}
         {view.kind === "transactions" && (

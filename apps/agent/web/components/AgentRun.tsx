@@ -1,49 +1,14 @@
 "use client";
 
 import { memo, useEffect, useRef, useState, type ReactNode, type Ref } from "react";
-import { CHECKOUT, EXPLORER_TX, INSTRUCTION, LISTINGS, PICKS, RECEIPT, REJECTED, SOURCES, STORE_WALLET, THOUGHTS } from "@/lib/demo";
-import { AGENT_WALLET } from "@/lib/wallet";
+import { API, CHECKOUT, START, advance, apply, checkoutOver, counts, type Row, type Run } from "@/lib/run";
 import { ArrowUpRightIcon, CheckIcon, ChevronIcon } from "./Icons";
 import { Logo } from "./Logo";
-
-// The run moves through five stages: understand, research, gate, rank, pay. Stage 5 means everything finished.
-type Run = {
-  stage: 0 | 1 | 2 | 3 | 4 | 5;
-  thoughts: number;
-  instruction: boolean;
-  scraped: number;
-  gated: number;
-  picked: boolean;
-  paid: number;
-};
-
-const FINISHED: Run = {
-  stage: 5,
-  thoughts: THOUGHTS.length,
-  instruction: true,
-  scraped: LISTINGS.length,
-  gated: LISTINGS.length,
-  picked: true,
-  paid: CHECKOUT.length,
-};
-
-const START: Run = { stage: 0, thoughts: 0, instruction: false, scraped: 0, gated: 0, picked: false, paid: 0 };
-
-const VERIFIED = LISTINGS.length - REJECTED.length;
-
-// One line per finished stage, shown when the stage folds up.
-const SUMMARIES = [
-  `${INSTRUCTION.item} Under ${INSTRUCTION.limit}`,
-  `${LISTINGS.length} Listings From ${SOURCES.length} Stores`,
-  `${VERIFIED} Safe · ${REJECTED.length} Scams Blocked`,
-  `${PICKS[0].store} · ${PICKS[0].price.toFixed(2)} USDC`,
-  `Paid ${RECEIPT.amount}`,
-];
 
 // Matches .feed-row in globals.css. The follow loop uses it to find the row being checked without measuring.
 const ROW_HEIGHT = 36;
 
-// How often a listing arrives while searching and is checked while scanning, in milliseconds.
+// How often a found listing joins the feed while searching, and how often the next one is checked, in milliseconds.
 const SEARCH_MS = 55;
 const CHECK_MS = 70;
 
@@ -56,50 +21,81 @@ const CHECK_LEAD = (ROW_HEIGHT / CHECK_MS) * FOLLOW_MS;
 // frame. Twelve rows fill the box below the centered row and its bottom fade.
 const CHECK_AHEAD = 12;
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+// Events the run listens for on the GET /chat stream.
+const EVENTS = ["reasoning", "thought", "instruction", "listing", "verdict", "done", "pick", "checkout", "receipt", "end", "error"];
 
 const shorten = (value: string) => `${value.slice(0, 6)}…${value.slice(-4)}`;
 
-// Plays the scripted run once, at roughly the pace of a real run. With `instant`, it renders the finished run.
-export function AgentRun({ instant, onDone }: { instant?: boolean; onDone?: () => void }) {
-  const [run, setRun] = useState<Run>(instant ? FINISHED : START);
+const limitOf = (i: NonNullable<Run["instruction"]>) => (i.max_price ? `$${i.max_price.toFixed(2)}` : null);
+
+const titleOf = (i: NonNullable<Run["instruction"]>) => (limitOf(i) ? `${i.item} Under ${limitOf(i)}` : i.item);
+
+// "Oct 23, 2026 · 4:42 PM"
+const paidOn = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
+};
+
+type Props = { prompt: string; saved?: Run; onTitle?: (title: string) => void; onDone?: (run: Run) => void };
+
+// Streams one Hunter run from the agent API. With `saved`, it renders that finished run instead.
+export function AgentRun({ prompt, saved, onTitle, onDone }: Props) {
+  const [run, setRun] = useState<Run>(saved ?? START);
   const [opened, setOpened] = useState<Record<number, boolean>>({});
   const feed = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
-  const done = useRef(onDone);
+  const callbacks = useRef({ onTitle, onDone });
 
   useEffect(() => {
-    done.current = onDone;
+    callbacks.current = { onTitle, onDone };
   });
 
+  // ponytail: the stream lives in this component, so leaving the chat mid-run ends it and coming back starts over.
+  // Keep runs in App state (or the backend) if chats should keep running in the background.
   useEffect(() => {
-    if (instant) return;
-    let cancelled = false;
-    const step = async (ms: number, change: Partial<Run>) => {
-      await sleep(ms);
-      if (cancelled) throw new Error("cancelled");
-      setRun((current) => ({ ...current, ...change }));
-    };
+    if (saved) return;
+    const source = new EventSource(`${API}/chat?prompt=${encodeURIComponent(prompt)}`);
+    for (const type of EVENTS) {
+      source.addEventListener(type, (event) => {
+        // A connection failure is also dispatched as "error", but without data.
+        const data = (event as MessageEvent).data;
+        if (type === "end" || data === undefined) source.close();
+        setRun((current) => apply(current, type, data === undefined ? {} : JSON.parse(data)));
+      });
+    }
+    return () => source.close();
+  }, [prompt, saved]);
 
-    (async () => {
-      for (let i = 1; i <= THOUGHTS.length; i++) await step(i === 1 ? 800 : 1700, { thoughts: i });
-      await step(1400, { instruction: true });
-      await step(2200, { stage: 1 });
-      for (let n = 1; n <= LISTINGS.length; n++) await step(SEARCH_MS, { scraped: n });
-      await step(1500, { stage: 2 });
-      for (let n = 1; n <= LISTINGS.length; n++) await step(CHECK_MS, { gated: n });
-      await step(1500, { stage: 3 });
-      await step(3200, { picked: true });
-      await step(2200, { stage: 4 });
-      for (let i = 1; i <= CHECKOUT.length; i++) await step(i === 1 ? 900 : 1300, { paid: i });
-      await step(1400, { stage: 5 });
-      done.current?.();
-    })().catch(() => {});
+  useEffect(() => {
+    if (run.instruction && !saved) callbacks.current.onTitle?.(titleOf(run.instruction));
+  }, [run.instruction, saved]);
 
-    return () => {
-      cancelled = true;
+  // Rows join the feed, and then get checked, one tick at a time.
+  useEffect(() => {
+    if (saved || (run.stage !== 1 && run.stage !== 2)) return;
+    const id = setInterval(() => setRun(advance), run.stage === 1 ? SEARCH_MS : CHECK_MS);
+    return () => clearInterval(id);
+  }, [saved, run.stage]);
+
+  // After the check: show the picks, mark the best one, pay step by step as the store answers, then finish.
+  // Each step waits for its event, so the pace never runs ahead of the real checkout. An error finishes right away.
+  const paymentOver = checkoutOver(run);
+  useEffect(() => {
+    if (saved || run.stage === 5) return;
+    const later = (ms: number, change: Partial<Run>) => {
+      const id = setTimeout(() => setRun((current) => ({ ...current, ...change })), ms);
+      return () => clearTimeout(id);
     };
-  }, [instant]);
+    if (run.error) return later(300, { stage: 5 });
+    if (run.stage === 3 && run.picks && !run.picked) return later(3200, { picked: true });
+    if (run.stage === 3 && run.picked) return later(2200, { stage: run.picks?.length ? 4 : 5 });
+    if (run.stage === 4 && paymentOver) return later(1400, { stage: 5 });
+    if (run.stage === 4 && run.steps[run.paid]) return later(run.paid === 0 ? 900 : 1300, { paid: run.paid + 1 });
+  }, [saved, run.stage, run.error, run.picks, run.picked, run.paid, run.steps, paymentOver]);
+
+  useEffect(() => {
+    if (run.stage === 5 && !saved) callbacks.current.onDone?.(run);
+  }, [run, saved]);
 
   // The follow loop reads the latest position from a ref, so it never restarts when a row arrives.
   const gatedNow = useRef(0);
@@ -108,7 +104,7 @@ export function AgentRun({ instant, onDone }: { instant?: boolean; onDone?: () =
   }, [run.gated]);
 
   // While the list is live, one animation-frame loop eases the scroll toward its target: the newest listing while
-  // scraping, the row being checked while the gate runs. Rows are a fixed height and never fold away, so the target
+  // searching, the row being checked while the gate runs. Rows are a fixed height and never fold away, so the target
   // only moves forward, and the frame-rate independent easing keeps the motion continuous.
   useEffect(() => {
     if (run.stage !== 1 && run.stage !== 2) return;
@@ -137,10 +133,23 @@ export function AgentRun({ instant, onDone }: { instant?: boolean; onDone?: () =
 
   // Keep the newest part of the run in view as it grows.
   useEffect(() => {
-    if (instant) return;
+    if (saved) return;
     const id = setTimeout(() => end.current?.scrollIntoView({ block: "end", behavior: "smooth" }), 350);
     return () => clearTimeout(id);
-  }, [instant, run.stage, run.thoughts, run.instruction, run.picked, run.paid]);
+  }, [saved, run.stage, run.thoughts.length, run.instruction, run.picks, run.picked, run.paid]);
+
+  const total = counts(run.rows);
+  const checked = counts(run.rows.slice(0, run.gated));
+  const chosen = run.picks?.[0];
+
+  // One line per finished stage, shown when the stage folds up.
+  const summaries = [
+    run.instruction ? titleOf(run.instruction) : "Your Request",
+    `${run.rows.length} Listings From ${total.stores} ${total.stores === 1 ? "Store" : "Stores"}`,
+    `${total.safe} Safe · ${total.blocked} Scams Blocked`,
+    chosen ? `${chosen.store} · ${chosen.price.toFixed(2)} USDC` : "No Safe Listing",
+    run.receipt ? `Paid ${run.receipt.amount.toFixed(2)} USDC` : "Not Paid",
+  ];
 
   const status = (stage: number) => (run.stage > stage ? "done" : run.stage === stage ? "active" : "pending");
   // The active stage is open. Finished stages fold to their summary, and a click opens them again.
@@ -149,19 +158,17 @@ export function AgentRun({ instant, onDone }: { instant?: boolean; onDone?: () =
   const stageProps = (stage: number) => ({
     status: status(stage),
     open: isOpen(stage),
-    summary: SUMMARIES[stage],
+    summary: summaries[stage],
     onToggle: () => toggle(stage),
   });
-
-  const gated = LISTINGS.slice(0, run.gated);
-  const rejected = gated.filter((l) => l.reason).length;
 
   return (
     <div className="run">
       <Stage {...stageProps(0)} title="Understanding Your Request">
-        {run.stage === 0 && !run.instruction && <p className="thinking">Thinking</p>}
+        <Reasoning text={run.reasoning.understand} />
+        {run.stage === 0 && !run.instruction && !run.error && <p className="thinking">Thinking</p>}
         <ul className="thoughts">
-          {THOUGHTS.slice(0, run.thoughts).map((thought) => (
+          {run.thoughts.map((thought) => (
             <li key={thought}>{thought}</li>
           ))}
         </ul>
@@ -169,59 +176,73 @@ export function AgentRun({ instant, onDone }: { instant?: boolean; onDone?: () =
           <p className="instruction">
             <Logo size={14} strokeWidth={1.6} />
             <span>
-              Hunter is finding <strong>{INSTRUCTION.item}</strong> under <strong>{INSTRUCTION.limit}</strong>.
+              Hunter is finding <strong>{run.instruction.item}</strong>
+              {limitOf(run.instruction) && (
+                <>
+                  {" "}
+                  under <strong>{limitOf(run.instruction)}</strong>
+                </>
+              )}
+              .
             </span>
           </p>
         )}
       </Stage>
 
-      {run.stage >= 1 && (
+      {run.stage >= 1 && run.instruction && (
         <Stage {...stageProps(1)} expandable={false} title="Searching Stores" live={`${run.scraped} Listings Found`}>
-          {run.stage === 1 && <Feed ref={feed} listings={LISTINGS.slice(0, run.scraped)} gated={-1} />}
+          {run.stage === 1 && <Feed ref={feed} rows={run.rows.slice(0, run.scraped)} gated={-1} />}
         </Stage>
       )}
 
-      {run.stage >= 2 && (
-        <Stage {...stageProps(2)} title="Checking for Scams" live={`${gated.length - rejected} Safe · ${rejected} Blocked`}>
-          <Feed ref={feed} listings={LISTINGS.slice(0, run.gated + CHECK_AHEAD)} gated={run.gated} />
+      {run.stage >= 2 && run.rows.length > 0 && (
+        <Stage {...stageProps(2)} title="Checking for Scams" live={`${checked.safe} Safe · ${checked.blocked} Blocked`}>
+          <Feed ref={feed} rows={run.rows.slice(0, run.gated + CHECK_AHEAD)} gated={run.gated} />
         </Stage>
       )}
 
-      {run.stage >= 3 && (
-        <Stage {...stageProps(3)} title="Picking the Best Deal" live={`Comparing ${VERIFIED} Safe Listings`}>
+      {run.stage >= 3 && run.rows.length > 0 && (
+        <Stage {...stageProps(3)} title="Picking the Best Deal" live={`Comparing ${total.safe} Safe Listings`}>
+          <Reasoning text={run.reasoning.pick} />
           {!run.picked && <p className="thinking">Comparing Condition and Price</p>}
-          <div className="picks">
-            {PICKS.map((listing, index) => {
-              const chosen = run.picked && index === 0;
-              return (
-                <div key={listing.id} className={run.picked ? (chosen ? "pick chosen" : "pick passed") : "pick"}>
-                  <span className="pick-mark">{chosen && <CheckIcon />}</span>
-                  <div className="pick-main">
-                    <div className="cell-main">{listing.store}</div>
-                    <div className="cell-sub">{listing.note}</div>
+          {run.picks && run.picks.length > 0 && (
+            <div className="picks">
+              {run.picks.map((pick, index) => {
+                const best = run.picked && index === 0;
+                return (
+                  <div key={pick.at} className={run.picked ? (best ? "pick chosen" : "pick passed") : "pick"}>
+                    <span className="pick-mark">{best && <CheckIcon />}</span>
+                    <div className="pick-main">
+                      <div className="cell-main">{pick.store}</div>
+                      <div className="cell-sub">{pick.note || pick.title}</div>
+                    </div>
+                    <span className="pick-tag">{best && <span className="best">Best Match</span>}</span>
+                    <div className="pick-price">{pick.price.toFixed(2)} USDC</div>
                   </div>
-                  <span className="pick-tag">{chosen && <span className="best">Best Match</span>}</span>
-                  <div className="pick-price">{listing.price.toFixed(2)} USDC</div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </Stage>
       )}
 
-      {run.stage >= 4 && (
-        <Stage {...stageProps(4)} title="Paying the Store" live="mzn · USDC">
+      {run.stage >= 4 && chosen && (
+        <Stage {...stageProps(4)} title="Paying the Store" live={`${chosen.store} · USDC`}>
           <ol className="checkout">
-            {CHECKOUT.map((item, index) => {
-              const state = index < run.paid ? "done" : index === run.paid && run.stage === 4 ? "active" : "pending";
+            {CHECKOUT(chosen.store).map((label, index) => {
+              const step = run.steps[index];
+              const shown = index < run.paid;
+              const state = shown
+                ? step.state === "done" ? "done" : "stopped"
+                : index === run.paid && run.stage === 4 && !checkoutOver(run) ? "active" : "pending";
               return (
-                <li key={item.label} className={state}>
+                <li key={label} className={state}>
                   <span className="step-mark">
                     {state === "done" ? <CheckIcon size={14} /> : <span className={`stage-icon ${state}`} />}
                   </span>
                   <div>
-                    <div className="checkout-label">{item.label}</div>
-                    {state !== "pending" && <div className="cell-sub">{item.detail}</div>}
+                    <div className="checkout-label">{label}</div>
+                    {shown && <div className="cell-sub">{step.detail}</div>}
                   </div>
                 </li>
               );
@@ -230,46 +251,91 @@ export function AgentRun({ instant, onDone }: { instant?: boolean; onDone?: () =
         </Stage>
       )}
 
-      {run.stage >= 5 && (
-        <div className="finish">
-          <div className="receipt">
-            <div className="receipt-total">
-              <span className="receipt-amount">{RECEIPT.amount}</span>
-              <span className="receipt-item">{RECEIPT.item}</span>
-              <span className="muted">{RECEIPT.note}</span>
-            </div>
-            <dl className="receipt-rows">
-              <Field label="Store">{RECEIPT.store}</Field>
-              <Field label="Network">{RECEIPT.network}</Field>
-              <Field label="Paid From" mono>
-                {shorten(AGENT_WALLET)}
-              </Field>
-              <Field label="Paid To" mono>
-                {shorten(STORE_WALLET)}
-              </Field>
-              <Field label="Order" mono>
-                {RECEIPT.order}
-              </Field>
-              <Field label="Paid On">{RECEIPT.paid}</Field>
-              <Field label="Arrives">{RECEIPT.arrives}</Field>
+      {run.stage >= 5 && <Finish run={run} />}
+      <div ref={end} />
+    </div>
+  );
+}
+
+function Finish({ run }: { run: Run }) {
+  const chosen = run.picks?.[0];
+  const item = run.instruction?.item ?? chosen?.title;
+  const limit = run.instruction ? limitOf(run.instruction) : null;
+  const stopped = run.steps.find((s) => s.state !== "done");
+
+  if (run.receipt) {
+    const r = run.receipt;
+    return (
+      <div className="finish">
+        <div className="receipt">
+          <div className="receipt-total">
+            <span className="receipt-amount">{r.amount.toFixed(2)} USDC</span>
+            <span className="receipt-item">{item}</span>
+            <span className="muted">{chosen?.note || r.item}</span>
+          </div>
+          <dl className="receipt-rows">
+            <Field label="Store">{r.store}</Field>
+            <Field label="Network">{r.network}</Field>
+            <Field label="Paid From" mono>
+              {shorten(r.from)}
+            </Field>
+            <Field label="Paid To" mono>
+              {shorten(r.to)}
+            </Field>
+            <Field label="Order" mono>
+              {r.order}
+            </Field>
+            <Field label="Paid On">{paidOn(r.paidAt)}</Field>
+            {r.txHash && r.explorer && (
               <Field label="Payment Record" mono>
-                <a className="receipt-link" href={EXPLORER_TX} target="_blank" rel="noreferrer">
-                  {shorten(RECEIPT.txHash)}
+                <a className="receipt-link" href={r.explorer} target="_blank" rel="noreferrer">
+                  {shorten(r.txHash)}
                   <ArrowUpRightIcon />
                 </a>
               </Field>
-            </dl>
-          </div>
-          <p className="instruction success">
-            <Logo size={14} strokeWidth={1.6} />
-            <span>
-              Hunter bought <strong>{INSTRUCTION.item}</strong> from <strong>{RECEIPT.store}</strong> for <strong>{RECEIPT.amount}</strong>.
-            </span>
-          </p>
+            )}
+          </dl>
         </div>
-      )}
-      <div ref={end} />
+        <p className="instruction success">
+          <Logo size={14} strokeWidth={1.6} />
+          <span>
+            Hunter bought <strong>{item}</strong> from <strong>{r.store}</strong> for <strong>{r.amount.toFixed(2)} USDC</strong>.
+          </span>
+        </p>
+      </div>
+    );
+  }
+
+  let body: ReactNode;
+  if (run.error) body = run.error;
+  else if (chosen && stopped?.state === "blocked")
+    body = (
+      <>
+        Hunter is ready to buy <strong>{item}</strong> from <strong>{chosen.store}</strong> for{" "}
+        <strong>{chosen.price.toFixed(2)} USDC</strong>, but no wallet key is set on the server, so nothing was paid.
+      </>
+    );
+  else if (chosen && stopped) body = <>Hunter didn’t pay. {stopped.detail}</>;
+  else body = <>Hunter didn’t find a listing that passed every check{limit ? ` under ${limit}` : ""}, so it bought nothing.</>;
+
+  return (
+    <div className="finish">
+      <p className="instruction">
+        <Logo size={14} strokeWidth={1.6} />
+        <span>{body}</span>
+      </p>
     </div>
+  );
+}
+
+// The model's raw reasoning, folded by default: it is long, and listing text it quotes is untrusted.
+function Reasoning({ text }: { text: string }) {
+  if (!text) return null;
+  return (
+    <details className="reasoning">
+      <summary>Show Reasoning</summary>
+      <p>{text}</p>
+    </details>
   );
 }
 
@@ -324,14 +390,14 @@ function StageIcon({ status }: { status: string }) {
 
 // `gated` is how far the gate has read: rows before it are verified or rejected, and the row at it is being checked.
 // The card keeps a crisp border while the scroller inside it fades out at the top and bottom edges.
-function Feed({ ref, listings, gated }: { ref: Ref<HTMLDivElement>; listings: typeof LISTINGS; gated: number }) {
+function Feed({ ref, rows, gated }: { ref: Ref<HTMLDivElement>; rows: Row[]; gated: number }) {
   return (
     <div className="feed">
       <div className="feed-scroll" ref={ref}>
-        {listings.map((listing) => {
-          const checked = listing.id < gated;
-          const state = !checked ? (listing.id === gated ? "scanning" : "") : listing.reason ? "rejected" : "verified";
-          return <FeedRow key={listing.id} listing={listing} state={state} />;
+        {rows.map((row) => {
+          const checked = row.id < gated;
+          const state = !checked ? (row.id === gated ? "scanning" : "") : row.verdict === "skip" ? "rejected" : "verified";
+          return <FeedRow key={row.id} row={row} state={state} />;
         })}
       </div>
     </div>
@@ -339,13 +405,13 @@ function Feed({ ref, listings, gated }: { ref: Ref<HTMLDivElement>; listings: ty
 }
 
 // Rows only re-render when their own state changes, not on every tick of the run.
-const FeedRow = memo(function FeedRow({ listing, state }: { listing: (typeof LISTINGS)[number]; state: string }) {
+const FeedRow = memo(function FeedRow({ row, state }: { row: Row; state: string }) {
   return (
     <div className={`feed-row ${state}`}>
       <span className="feed-mark">{state === "verified" ? <CheckIcon /> : <span className="feed-dot" />}</span>
-      <span className="feed-title">{listing.title}</span>
-      <span className="feed-store">{state === "rejected" ? listing.reason : listing.store}</span>
-      <span className="feed-price">${listing.price.toFixed(2)}</span>
+      <span className="feed-title">{row.title}</span>
+      <span className="feed-store">{state === "rejected" ? row.reason : row.store}</span>
+      <span className="feed-price">${row.price.toFixed(2)}</span>
     </div>
   );
 });

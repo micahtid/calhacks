@@ -3,12 +3,11 @@
 import { useState } from "react";
 import { SendIcon } from "./Icons";
 
-type Props = { placeholder: string; onSend: (text: string) => void; autoFocus?: boolean; value?: string };
+type Props = { placeholder: string; onSend: (text: string) => void; autoFocus?: boolean };
 
-// Enter sends and Shift+Enter adds a new line. A fixed `value` locks the text, which the demo uses for its scripted prompt.
-export function Composer({ placeholder, onSend, autoFocus, value: fixed }: Props) {
-  const [draft, setText] = useState("");
-  const text = fixed ?? draft;
+// Enter sends and Shift+Enter adds a new line.
+export function Composer({ placeholder, onSend, autoFocus }: Props) {
+  const [text, setText] = useState("");
 
   const send = () => {
     const value = text.trim();
@@ -30,7 +29,6 @@ export function Composer({ placeholder, onSend, autoFocus, value: fixed }: Props
         placeholder={placeholder}
         rows={2}
         autoFocus={autoFocus}
-        readOnly={fixed !== undefined}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
           if (event.key === "Enter" && !event.shiftKey) {
