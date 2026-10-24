@@ -53,6 +53,8 @@ def promote(model_id: str, holdout_totals: Callable[[str], HoldoutTotals | None]
     state = current()
     cand = gate_client.evaluate(model_id, split="val")
     if cand.get("error"):
+        if state["model_id"]:
+            gate_client.restore_features(state["model_id"])
         return {"model_id": model_id, "promoted": False, "reasons": [cand["error"]], "incumbent": state["model_id"],
                 "decision": PromotionDecision(action="revert", reason=cand["error"]).model_dump()}
     inc = gate_client.evaluate(state["model_id"], split="val") if state["model_id"] else None

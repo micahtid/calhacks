@@ -32,3 +32,14 @@ def test_scam_family_drop_over_five_points_blocks():
 def test_legit_and_real_families_are_not_recall_families():
     # a rising skip rate on legit families must not count as a "recall drop" (FPR is checked separately)
     assert decide(m(0.9, 0.0, legit_plain=0.0, real=0.0), m(0.8, 0.0, legit_plain=0.2, real=0.2))[0]
+
+
+def test_candidate_eval_error_restores_promoted_features(monkeypatch):
+    from redteam import gate_client, promotion
+    restored = []
+    monkeypatch.setattr(promotion, "current", lambda: {"model_id": "r1-good", "history": []})
+    monkeypatch.setattr(gate_client, "evaluate", lambda *a, **k: {"error": "feature sandbox: features/x.py:1 import os"})
+    monkeypatch.setattr(gate_client, "restore_features", restored.append)
+    res = promotion.promote("r2-bad")
+    assert res["promoted"] is False and res["decision"]["action"] == "revert"
+    assert restored == ["r1-good"]

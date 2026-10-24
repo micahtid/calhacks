@@ -5,7 +5,8 @@ shown to the model; exit 0 allows it.
 
 Policy, by path rather than by keyword (the old hook blocked any input containing the word "holdout"):
   - every path in the input must resolve inside --root (the coordinator's cwd, gate/), and no path may name holdout data;
-  - edits only under features/ (including shared helpers such as features/_text.py) or to train_config.yaml;
+  - edits only to features/<name>.py (including shared helpers such as features/_text.py) or train_config.yaml:
+    no subfolders, no __pycache__, no other file types;
   - Task only for the attack-strategist droid;
   - no shell, web, Skill or automation tools; MCP tools only from the redteam server.
 
@@ -18,7 +19,8 @@ import sys
 from pathlib import Path
 
 EDIT_TOOLS = {"Edit", "MultiEdit", "Create", "ApplyPatch", "Write", "NotebookEdit"}
-ALLOWED_EDIT = ("features/", "train_config.yaml")
+ALLOWED_EDIT = ("features/<name>.py", "train_config.yaml")
+EDITABLE = re.compile(r"^(features/[A-Za-z0-9_]+\.py|train_config\.yaml)$")
 DENY_TOOLS = {"Execute", "FetchUrl", "WebSearch", "Skill", "ConnectApp", "Bash", "PowerShell"}
 STRATEGIST = "attack-strategist"
 PATH_KEYS = {"file_path", "path", "directory_path", "dir", "cwd", "target_file", "notebook_path", "folder"}
@@ -102,7 +104,7 @@ def check(event: dict, root: Path) -> str | None:
         targets = paths or ["<unknown>"]
         for p in targets:
             r = rel_inside(root, p) if p != "<unknown>" else None
-            if not r or not any(r == a or r.startswith(a) for a in ALLOWED_EDIT):
+            if not r or not EDITABLE.match(r):
                 return f"edits are allowed only in {ALLOWED_EDIT}, not {p}"
     return None
 

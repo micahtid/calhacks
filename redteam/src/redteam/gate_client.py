@@ -16,11 +16,19 @@ from redteam import gate_stub
 from redteam.config import GATE_DIR, MODELS_DIR, REPO
 
 GATE_BACKEND = os.environ.get("REDTEAM_GATE", "stub")
+# Gate subprocesses run coordinator-written feature code; they never need the holdout.
+SUBPROCESS_DROP = ("HOLDOUT_KEY", "CALHACKS_HOLDOUT")
+
+
+def subprocess_env() -> dict:
+    env = {k: v for k, v in os.environ.items() if k not in SUBPROCESS_DROP}
+    env["UV_SYSTEM_CERTS"] = "1"
+    return env
 
 
 def _run(args: list[str], timeout: int = 1800) -> dict:
     proc = subprocess.run(["uv", "run", "--project", str(GATE_DIR), *args], cwd=REPO, capture_output=True,
-                          text=True, encoding="utf-8", timeout=timeout, env={**os.environ, "UV_SYSTEM_CERTS": "1"})
+                          text=True, encoding="utf-8", timeout=timeout, env=subprocess_env())
     out = proc.stdout.strip()
     try:
         return json.loads(out[out.index("{"):])  # the CLIs print exactly one JSON object

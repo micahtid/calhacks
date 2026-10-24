@@ -41,7 +41,7 @@ All commands run from the repo root. Real listings must be in MongoDB first (`co
 2. The coordinator orders `AttackSpec`s through `generate_attacks`. The main mode, `mutate_real`, copies real listings and
    changes one thing in code; LLM families get their text rewritten by Bitdeer.
 3. `score_round` scores fresh attacks against last round's model (attack success). `inspect_failures` shows the misses.
-4. It edits `gate/features/*` (real Gate only), runs `train_gate`, then `promote_model`. Code applies C6 and, on
+4. It edits `gate/features/<name>.py` (real Gate only; files must pass `gatepy.sandbox`), runs `train_gate`, then `promote_model`. Code applies C6 and, on
    refusal, restores the promoted model's feature code.
 5. It returns a `CoordinatorOutput`. Code assembles the `RoundReport` (metrics, decision, cost) and saves it to MongoDB.
 

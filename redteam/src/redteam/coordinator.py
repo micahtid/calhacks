@@ -132,7 +132,11 @@ def round_prompt(round_: int, allow_edits: bool, max_listings: int, brief: str) 
     editing = (
         "Then fix the Gate by editing feature files under features/ (relative to your working directory) or "
         "train_config.yaml. A feature is a pure function of the GateInput (mandate, listing, references) registered "
-        "with the decorator below; it must be deterministic, return a finite float, and do no file or network I/O:\n"
+        "with the decorator below; it must be deterministic, return a finite float, and do no file or network I/O. "
+        "Feature files are checked before import: they may import only math, re, unicodedata, itertools, difflib, "
+        "statistics, collections, functools, calhacks_contracts models, gatepy.registry.feature, gatepy.clock and "
+        "features._text, and may not use open/eval/exec/getattr or private or dunder attributes. Edit only "
+        "features/<name>.py files:\n"
         "    from gatepy.registry import feature\n"
         "    @feature(\"name\", monotone=-1|0|1)   # -1: risk must not rise as the value rises\n"
         "    def name(x) -> float: ...\n"
