@@ -105,8 +105,10 @@ Errors: `400` missing `shipTo` (no money moves), `402` no or rejected payment, `
 |---|---|
 | `STORE_PAY_TO` | Store wallet address where payments land |
 | `BUYER_PRIVATE_KEY` | Agent wallet key that signs payments. Fund with free test USDC from https://faucet.circle.com |
+| `MONGODB_URI` | MongoDB Atlas connection string, used by the agent and all stores |
+| `MONGODB_DB_AGENT`, `MONGODB_DB_STORE_A/B/C` | Optional database names (default `agent`, `store-a`, `store-b`, `store-c`) |
 
-Secrets go in `.env` files (gitignored). Commit only `.env.example`.
+Secrets go in `.env` files (gitignored). Commit only `.env.example`. Locally, copy `.env.example` to `.env.local` at the repo root: the agent and every store's `npm run dev` read it (via `scripts/with-env.mjs` for the stores). In production, set `MONGODB_URI` in each service's platform env vars (Vercel/Railway) and allow the platform's egress in Atlas Network Access; `build`/`start` read no env files.
 
 ## Prize tracks
 
@@ -120,6 +122,7 @@ apps/
   store-a/   Next.js 16 storefront, port 3001
   store-b/   Next.js 16 storefront
   store-c/   Next.js 16 storefront
+scripts/     with-env.mjs: loads root .env.local/.env before `next dev`
 package.json npm workspaces for the stores + root dev scripts
 ```
 
@@ -136,11 +139,14 @@ npm run build        # build all stores
 npm run lint         # lint all stores
 ```
 
+Health checks report MongoDB connectivity as `"db": "ok"`: agent `GET /health`, stores `GET /api/health` (503 if the database is unreachable). If `uv` fails with a TLS `UnknownIssuer` error (antivirus/proxy interception), set `UV_SYSTEM_CERTS=1`.
+
 ## Implementation status
 
 Keep this section current (see `AGENTS.md`).
 
 - [x] Monorepo scaffold: FastAPI agent with `/health`, three default Next.js store apps
+- [x] MongoDB Atlas connection: shared client in the agent (PyMongo async) and each store (server-only), DB ping on health endpoints
 - [ ] Storefront API (`store.json`, catalog, items, x402 checkout) in each store
 - [ ] Scam storefront variants (lookalike domain/wallet, too cheap, prompt injection, fake reviews, unverified seller)
 - [ ] Apify listing ingestion
