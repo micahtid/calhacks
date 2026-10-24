@@ -2,7 +2,7 @@
 
 Promote only if, on the current validation set, compared with the incumbent:
   - full-Gate recall improves,
-  - full-Gate false-block rate stays <= MAX_FPR,
+  - the Layer 2 false-block rate (legit listings that pass Layer 1 but the model skips) stays <= MAX_FPR,
   - no scam family's recall drops by more than MAX_FAMILY_DROP.
 With no incumbent, only the false-block bound applies. On promotion the holdout totals are recorded in
 gate/models/promoted.json through the Gate's own set_promoted. On refusal the promoted model's feature
@@ -30,9 +30,13 @@ def current() -> dict:
 def decide(candidate: dict, incumbent: dict | None) -> tuple[bool, list[str]]:
     """Both are RoundMetrics dicts on the same val set. Returns (promote, reasons for refusal)."""
     reasons = []
-    fpr, recall = candidate["fpr"]["value"], candidate["recall"]["value"]
+    # The bound is on the trained model's own false blocks. Layer 1 policy blocks (an unknown wallet over the cap)
+    # are deliberate, the same for every model, and reported separately in fpr / fpr_real.
+    l2 = candidate.get("layer2_fpr")
+    fpr = (l2 or candidate["fpr"])["value"]
+    recall = candidate["recall"]["value"]
     if fpr > MAX_FPR:
-        reasons.append(f"val false-block rate {fpr:.3f} > {MAX_FPR}")
+        reasons.append(f"val {'Layer 2 ' if l2 else ''}false-block rate {fpr:.3f} > {MAX_FPR}")
     if incumbent:
         old = incumbent["recall"]["value"]
         if recall <= old:

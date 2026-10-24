@@ -67,6 +67,8 @@ def test_per_family_has_layer1_families_fully_caught(trained, models_dir, repo):
     m = RoundMetrics.model_validate(evaluate_examples(model, load_examples(repo), repo.reference_snapshot())["metrics"])
     for fam in ("payment_mismatch", "bait_and_switch", "product_switch"):  # lookalike/unknown sellers under the cap reach Layer 2
         assert m.per_family[fam].value == 1.0, fam
+    # layer2_fpr counts only legit listings that pass Layer 1, so it never exceeds what the full Gate blocks
+    assert m.layer2_fpr is not None and m.layer2_fpr.n <= m.fpr.n and m.layer2_fpr.k <= m.fpr.k
 
 
 def test_risk_never_falls_as_price_falls(trained, models_dir, inputs):

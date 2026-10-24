@@ -85,7 +85,9 @@ gate-eval --model MODEL_ID|promoted [--split train|val|all] [--ids FILE] [--rows
 ```
 
 `RoundMetrics` is defined in `calhacks_contracts.coordinator`: `layer1_catches`, `layer2_recall`, `fpr_real` (real
-listings only), `per_family`, `adaptive_recall` (white_box attacks), `recall`, `fpr`, each a `Rate` with a Wilson 95% interval.
+listings only), `per_family`, `adaptive_recall` (white_box attacks), `recall`, `fpr`, and `layer2_fpr` (false blocks among
+legit listings that pass Layer 1), each a `Rate` with a Wilson 95% interval. The promotion rule's false-block bound uses
+`layer2_fpr`: Layer 1 policy blocks (unknown wallets over the cap) are by design and are reported in `fpr` / `fpr_real`.
 
 In-process equivalents for the red-team MCP server: `gatepy.evaluate.evaluate(model, items, refs)` where `items` are
 `(Listing, Case, AnswerKey)` tuples, so the holdout can be scored without touching MongoDB.

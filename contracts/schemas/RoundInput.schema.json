@@ -456,6 +456,18 @@
         "fpr": {
           "$ref": "#/$defs/Rate",
           "description": "Full Gate false-block rate on all legit listings"
+        },
+        "layer2_fpr": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "False blocks among legit listings that pass Layer 1: the trained model's own mistakes. Layer 1 policy blocks (e.g. unknown wallets over the cap) are excluded"
         }
       },
       "required": [

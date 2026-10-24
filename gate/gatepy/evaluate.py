@@ -63,6 +63,7 @@ def round_metrics(examples: list[Example], decisions: list[GateDecision]) -> Rou
         adaptive_recall=skip_rate(white_box) if white_box else None,
         recall=skip_rate(scam),
         fpr=skip_rate(legit),
+        layer2_fpr=skip_rate([(e, d) for e, d in legit if d.decided_by != "layer1"]),
     )
 
 

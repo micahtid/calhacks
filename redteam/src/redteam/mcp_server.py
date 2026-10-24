@@ -166,8 +166,9 @@ def inspect_failures(round: int | None = None, limit: int = 12) -> dict:
 
 
 def train_gate(round: int | None = None) -> dict:
-    """Train a candidate Gate on every train-split listing up to this round (holdout families never included)."""
-    r = current_round() if round is None else round
+    """Train a candidate Gate on every train-split listing so far (holdout families never included). Models are
+    always labelled with the current round."""
+    r = current_round()
     out = gate_client.train(r)
     if not out.get("error"):
         store.repo().db.rounds.update_one({"_id": current_round()}, {"$push": {"candidates": out["model_id"]}},

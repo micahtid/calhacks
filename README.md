@@ -196,7 +196,7 @@ listings live in MongoDB through `calhacks-contracts`; nothing is read from loca
 - **Coordinator** (`redteam.coordinator`): one Factory Droid SDK session per round on Bitdeer DeepSeek-V4.1-Flash, with
   a GLM-5.3 attack-strategist droid. It sees the world only through the stdio MCP tools (`get_round_input`,
   `generate_attacks`, `score_round`, `inspect_failures`, `train_gate`, `eval_gate`, `promote_model`). A guard hook
-  limits edits to `gate/features/<name>.py` and `gate/train_config.yaml`, and Gate subprocesses never receive the holdout key. Promotion (validation recall up, false blocks ≤ 2%, no
+  limits edits to `gate/features/<name>.py` and `gate/train_config.yaml`, and Gate subprocesses never receive the holdout key. Promotion (validation recall up, Layer 2 false blocks ≤ 2% — Layer 1 policy blocks such as unknown wallets over the cap are reported separately, no
   family down more than 5 points) and the `RoundReport` numbers are computed in code.
 - **Gate backend:** the real Gate in `gate/` (path dependency). `REDTEAM_GATE=stub` selects a fast stand-in used by unit tests.
 

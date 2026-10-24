@@ -197,6 +197,11 @@ cap:
 
 Where this document mentions CRS below, it is historical.
 
+**Promotion bound (dry-run finding):** the 2% false-block bound now applies to `layer2_fpr`, the trained model's false
+blocks among legit listings that pass Layer 1. On the scraped data, Layer 1's cap skips about 9% of honest real listings
+(unknown wallets over $100) by design. Counted in the bound, that made every model unpromotable. Those policy blocks are
+still reported in `fpr` and `fpr_real`.
+
 ## Revision 2 (Oct 24): issue #1 contracts and MongoDB
 
 This revision supersedes Part 2 and every place below that mentions the `Snapshot` format, Pixel Cart reference data or

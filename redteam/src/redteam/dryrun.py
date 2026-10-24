@@ -105,7 +105,10 @@ def run_round(run: Path, round_: int, max_listings: int, timeout_s: int) -> dict
     cfg = _apply_env(run)  # before redteam.config is imported: it reads its paths once
     from redteam.config import REPO
     env = {**os.environ, **env_for(run, cfg)}
-    log = run / "data" / f"coordinator-R{round_}.log"
+    n = 1
+    while (run / "data" / f"coordinator-R{round_}-a{n}.log").exists():
+        n += 1
+    log = run / "data" / f"coordinator-R{round_}-a{n}.log"
     log.parent.mkdir(parents=True, exist_ok=True)
     with log.open("w", encoding="utf-8") as f:
         try:
@@ -142,20 +145,24 @@ def summary(run: Path) -> dict:
     rows = []
     for doc in store.all_rounds(r):
         rep, score = doc.get("report") or {}, doc.get("score") or {}
-        m = rep.get("metrics") or {}
         promos = doc.get("promotions") or []
-        last = promos[-1] if promos else {}
+        kept = [p for p in promos if p.get("promoted")]
+        last = kept[-1] if kept else (promos[-1] if promos else {})  # a round that kept a model reports that model
+        m = last.get("candidate_val") or rep.get("metrics") or {}
         h = hist.get(last.get("model_id")) if last.get("promoted") else None
         diff = run / "diffs" / f"R{doc['_id']}.diff"
         rows.append({
             "round": doc["_id"],
             "attack_success": score.get("attack_success"),
             "recall": _rate(m, "recall"), "fpr": _rate(m, "fpr"), "fpr_real": _rate(m, "fpr_real"),
+            "layer2_fpr": _rate(m, "layer2_fpr"),
             "layer2_recall": _rate(m, "layer2_recall"), "layer1_catches": m.get("layer1_catches"),
             "adaptive_recall": _rate(m, "adaptive_recall"),
             "holdout_recall": _rate((h or {}).get("holdout"), "recall"),
             "holdout_fpr": _rate((h or {}).get("holdout"), "fpr"),
-            "decision": (rep.get("decision") or {}).get("action"), "reason": (rep.get("decision") or {}).get("reason"),
+            "decision": "kept" if kept else ("revert" if promos or rep else None),
+            "reason": (last.get("decision") or rep.get("decision") or {}).get("reason"),
+            "kept_models": [p["model_id"] for p in kept], "promotion_requests": len(promos),
             "model": last.get("model_id"), "promoted_model": promoted["model_id"],
             "generation": doc.get("generation"), "cost": rep.get("cost"),
             "feature_changes": rep.get("feature_changes"), "session_id": doc.get("session_id"),
@@ -183,21 +190,24 @@ def markdown(s: dict) -> str:
              f"attackers: {c.get('knowledge') or 'coordinator decides (blind by default)'}, "
              f"known list: {'every real seller' if c['all_known'] else 'top reputable sellers'}",
              f"- Holdout: {s['holdout']['n'] if s['holdout'] else 0} listings, ${s['holdout_usd']:.4f}",
-             f"- Total spend (estimate): **${s['spend_usd']:.4f}**", "",
-             "| Round | Attack success | Recall | False blocks | False blocks (real) | L2 recall | L1 catches | "
-             "White-box recall | Holdout recall | Holdout false blocks | Decision | Cost |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             f"- Total spend (estimate): **${s['spend_usd']:.4f}**",
+             "- Attack success = share of this round's attacks the previously promoted model let through, from the "
+             "round's last score_round call. Metrics are the kept model's (or the last candidate's) on validation.", "",
+             "| Round | Attack success | Recall | False blocks | False blocks (real) | L2 false blocks | L2 recall | "
+             "L1 catches | White-box recall | Holdout recall | Holdout false blocks | Decision | Cost |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for x in s["rounds"]:
         a = x["attack_success"]
         lines.append(" | ".join([
             f"| R{x['round']}", "—" if a is None else f"{a * 100:.1f}%", _pct(x["recall"]), _pct(x["fpr"]),
-            _pct(x["fpr_real"]), _pct(x["layer2_recall"]), str(x["layer1_catches"]), _pct(x["adaptive_recall"]),
+            _pct(x["fpr_real"]), _pct(x["layer2_fpr"]), _pct(x["layer2_recall"]), str(x["layer1_catches"]), _pct(x["adaptive_recall"]),
             _pct(x["holdout_recall"]), _pct(x["holdout_fpr"]), x["decision"] or "—",
             "—" if not x["cost"] else f"${x['cost']['usd']:.4f}"]) + " |")
     lines.append("")
     for x in s["rounds"]:
         lines.append(f"## R{x['round']}")
-        lines.append(f"- Decision: {x['decision']} ({x['reason']})")
+        lines.append(f"- Decision: {x['decision']} ({x['reason']}); kept: {', '.join(x['kept_models']) or 'none'} "
+                     f"of {x['promotion_requests']} promotion request(s)")
         for fc in x["feature_changes"] or []:
             lines.append(f"- Feature {fc['action']}: `{fc['feature']}`: {fc['rationale']}")
         lines.append(f"- Diff: {x['diff'] or 'no feature edits'}")

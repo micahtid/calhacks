@@ -75,6 +75,18 @@ export interface GateDecision {
 }
 
 // ---------- Schema 2: coordinator (read-only on the TS side) ----------
+export interface Rate { value: number; lo: number; hi: number; k: number; n: number }
+export interface RoundMetrics {
+  layer1_catches: number;
+  layer2_recall: Rate;
+  fpr_real: Rate;
+  per_family: Record<string, Rate>;
+  adaptive_recall?: Rate | null;
+  recall: Rate;
+  fpr: Rate;
+  layer2_fpr?: Rate | null; // the trained model's false blocks; Layer 1 policy blocks excluded
+}
+
 export interface AttackSpec {
   spec_id: string;
   family: string;
