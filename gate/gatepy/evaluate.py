@@ -19,6 +19,7 @@ from gatepy.dataset import Example, GateInputError, featurize, from_items, load_
 from gatepy.layer1_bridge import failed_rule, passed, run_layer1
 from gatepy.model_io import Model, load
 from gatepy.registry import discover, select
+from gatepy.sandbox import FeaturePolicyError
 from gatepy.splits import split_of
 
 
@@ -104,7 +105,7 @@ def main(argv: list[str] | None = None) -> int:
         if a.split != "all":
             examples = [e for e in examples if split_of(e.id) == a.split]
         result = evaluate_examples(model, examples, repo.reference_snapshot(), with_rows=a.rows)
-    except (GateInputError, FileNotFoundError, KeyError, json.JSONDecodeError) as e:
+    except (GateInputError, FeaturePolicyError, FileNotFoundError, KeyError, json.JSONDecodeError) as e:
         print(json.dumps({"error": str(e)}))
         return 2
     print(json.dumps(result))

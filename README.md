@@ -152,6 +152,7 @@ Two layers decide whether the wallet may pay; both must say yes. Details: `gate/
 - **Layer 2** (`gate/gatepy` + `gate/features`, Python): a LightGBM risk score that runs only when Layer 1 passes and can
   only turn a buy into a skip. Features from issue #1: price vs median, CRS verification and age, known wallet and wallet age,
   domain and wallet lookalikes, injection and hidden-text scores, review similarity. Each decision carries its top 3 reasons.
+  Feature files are checked statically before import (`gatepy.sandbox`): no file, env, network or object-graph access.
 - **Data:** training and evaluation read listings, mandates and references from MongoDB (`MONGODB_DB_REDTEAM`); answer keys
   are used only for scoring. `uv run --project gate gate-train --round N`, `uv run --project gate gate-eval --model promoted`.
 - **Purchase time:** `gatepy.serve` scores a `GateRequest` (`POST /gate/risk`), fetching the listing and references itself

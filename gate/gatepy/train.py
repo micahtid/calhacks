@@ -25,6 +25,7 @@ from gatepy.evaluate import evaluate_examples, get_repo
 from gatepy.layer1_bridge import passed, run_layer1
 from gatepy.model_io import from_meta, save
 from gatepy.registry import Feature, discover, feature_code_hash, select, self_test
+from gatepy.sandbox import FeaturePolicyError
 from gatepy.selftest import fixture_inputs
 from gatepy.splits import split_of
 
@@ -159,7 +160,7 @@ def main(argv: list[str] | None = None) -> int:
     a = ap.parse_args(argv)
     try:
         result = train(a.round, a.config, json.loads(a.query) if a.query else None, a.out)
-    except (GateInputError, json.JSONDecodeError) as e:
+    except (GateInputError, FeaturePolicyError, json.JSONDecodeError) as e:
         print(json.dumps({"error": str(e)}))
         return 2
     print(json.dumps(result))

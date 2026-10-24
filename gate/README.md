@@ -32,6 +32,12 @@ Each is `@feature(name, monotone=-1|0|1)` on a pure `GateInput -> float`. `gate-
 `contracts/tests/fixtures` plus a sample of training rows and exits 2 on failure. Ages are measured against
 `GATE_AS_OF` (default: the process start date), recorded in each model file.
 
+Before any feature module is imported, `gatepy.sandbox` checks every file in `features/` statically: imports only from
+an allowlist (math, re, unicodedata, itertools, the contract models, `gatepy.registry`/`gatepy.clock`, `features._text`),
+no `open`/`exec`/`eval`/`getattr`/`__import__`, no private or dunder attributes, no frame walking, no `'__'` strings. A
+violation raises `FeaturePolicyError` (the CLIs exit 2) and nothing in `features/` runs. This matters because the
+coordinator writes these files and the red-team MCP server scores the holdout in-process.
+
 ## Commands
 
 ```sh

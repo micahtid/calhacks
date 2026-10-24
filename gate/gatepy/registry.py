@@ -15,8 +15,11 @@ from dataclasses import dataclass
 
 from calhacks_contracts import GateInput
 
-import features as features_pkg
 from gatepy import GATE_DIR
+from gatepy.sandbox import FeaturePolicyError, enforce
+
+enforce(GATE_DIR / "features")  # before the features package (and its __init__) is imported at all
+import features as features_pkg  # noqa: E402
 
 FeatureFn = Callable[[GateInput], float]
 
@@ -47,7 +50,10 @@ def feature(name: str, monotone: int = 0):
 
 
 def discover() -> dict[str, Feature]:
-    """Import (or re-import) every module in gate/features/ and return the registry."""
+    """Import (or re-import) every module in gate/features/ and return the registry.
+
+    Raises FeaturePolicyError, without importing anything, if any feature file breaks the sandbox policy."""
+    enforce(GATE_DIR / "features")
     REGISTRY.clear()
     for info in sorted(pkgutil.iter_modules(features_pkg.__path__), key=lambda m: m.name):
         mod = f"features.{info.name}"
