@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { findOrThrow } from "@calhacks/common";
+import type { Merchant } from "@calhacks/common/x402";
 import type { Item, Store } from "./types";
 
 export function getItem(store: Store, id: string): Item | undefined {
@@ -25,4 +26,12 @@ export function itemParams(store: Store) {
 export function itemMetadata(store: Store, id: string): Metadata {
   const item = getItem(store, id);
   return { title: item ? `Amazon.com: ${item.title} : Video Games` : "Amazon.com" };
+}
+
+// The real and scam stores sell through the same x402 checkout. The company on the page is who gets paid.
+export function merchantOf(store: Store): Merchant {
+  return {
+    name: store.company,
+    listings: store.items.map((item) => ({ key: item.id, title: item.title, price: item.price, inStock: item.stock > 0, seller: item.soldBy, path: itemPath(item) })),
+  };
 }

@@ -16,9 +16,13 @@
     "dev:store-c": "npm run dev -w store-c",
     "dev:store-d": "npm run dev -w store-d",
     "build": "npm run build --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present"
+    "lint": "npm run lint --workspaces --if-present",
+    "test:checkout": "node scripts/test-checkout.mjs"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "@x402/evm": "^2.28.0",
+    "@x402/fetch": "^2.28.0",
+    "concurrently": "^9.2.1",
+    "viem": "^2.57.11"
   }
 }
