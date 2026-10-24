@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://calhacks.local/contracts/snapshot.schema.json",
+  "title": "Snapshot",
+  "description": "Everything the shopping agent sees for one candidate purchase: store.json, the item page with reviews, the decoded 402 terms, and the user's mandate. Live and generated listings share this shape.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "family", "label", "gen", "mandate", "store", "item", "reviews", "payment_required", "checkout_item_id", "tactic_evidence"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "family": {"type": "string", "description": "An id from families.json, or \"live\" for a real listing."},
+    "label": {"enum": ["scam", "legit", "unknown"], "description": "Set by code, never by the LLM. \"unknown\" only for live listings."},
+    "gen": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["model", "temperature", "batch_id", "round"],
+      "properties": {
+        "model": {"type": "string"},
+        "temperature": {"type": "number"},
+        "batch_id": {"type": "string"},
+        "round": {"type": "integer", "minimum": 0}
+      }
+    },
+    "mandate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["query", "max_price_usd", "budget_remaining_usd"],
+      "properties": {
+        "query": {"type": "string"},
+        "max_price_usd": {"type": "number", "exclusiveMinimum": 0},
+        "budget_remaining_usd": {"type": "number", "minimum": 0}
+      }
+    },
+    "store": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "sellerId", "payTo", "network", "currency", "sellingSince", "rating", "reviewCount", "domain"],
+      "properties": {
+        "name": {"type": "string"},
+        "sellerId": {"type": "string"},
+        "payTo": {"$ref": "#/$defs/address"},
+        "network": {"type": "string"},
+        "currency": {"type": "string"},
+        "sellingSince": {"type": "integer", "minimum": 1990, "maximum": 2100},
+        "rating": {"type": "number", "minimum": 0, "maximum": 5},
+        "reviewCount": {"type": "integer", "minimum": 0},
+        "domain": {"type": "string"}
+      }
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "platform", "condition", "priceUsd", "description", "inStock"],
+      "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "platform": {"type": "string"},
+        "condition": {"enum": ["Fair", "Good", "Like New", "New"]},
+        "priceUsd": {"type": "number", "exclusiveMinimum": 0},
+        "description": {"type": "string"},
+        "inStock": {"type": "boolean"}
+      }
+    },
+    "reviews": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["author", "rating", "date", "verifiedPurchase", "body"],
+        "properties": {
+          "author": {"type": "string"},
+          "rating": {"type": "integer", "minimum": 1, "maximum": 5},
+          "date": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+          "verifiedPurchase": {"type": "boolean"},
+          "body": {"type": "string"}
+        }
+      }
+    },
+    "payment_required": {
+      "description": "accepts[0] of the decoded PAYMENT-REQUIRED header (x402 v2).",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["scheme", "network", "amount", "asset", "payTo", "maxTimeoutSeconds"],
+      "properties": {
+        "scheme": {"type": "string"},
+        "network": {"type": "string"},
+        "amount": {"type": "string", "pattern": "^[0-9]+$", "description": "Base units (6 decimals for USDC)."},
+        "asset": {"$ref": "#/$defs/address"},
+        "payTo": {"$ref": "#/$defs/address"},
+        "maxTimeoutSeconds": {"type": "integer", "minimum": 0}
+      }
+    },
+    "checkout_item_id": {"type": "string", "description": "Item id the checkout charges for. Differs from item.id in bait_and_switch."},
+    "tactic_evidence": {"type": ["string", "null"], "description": "Verbatim scam text for text tactics; must appear in the description or a review."}
+  },
+  "$defs": {
+    "address": {"type": "string", "pattern": "^0x[0-9a-fA-F]{40}$"}
+  }
+}
