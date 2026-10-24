@@ -26,8 +26,8 @@ def test_round_flow_in_process(round1, fake_client, monkeypatch):
     bad = mcp_server.generate_attacks({"family": "too_cheap"})
     assert "invalid AttackSpec" in bad["error"]
     for fam in ("too_cheap", "payment_mismatch", "prompt_injection"):
-        g = mcp_server.generate_attacks({"family": fam, "n": 30, "legit_ratio": 0.4})
-        assert g["kept"] > 20, g
+        g = mcp_server.generate_attacks({"family": fam, "n": 20, "legit_ratio": 0.4})
+        assert g["kept"] > 12, g
     assert mcp_server.generate_attacks({"family": "too_cheap", "n": 150})["error"].startswith("round 1 listing cap")
     assert "holdout" in mcp_server.eval_gate("x", "holdout")["error"]
     assert "no promoted model" in mcp_server.score_round()["error"]

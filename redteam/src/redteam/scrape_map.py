@@ -16,8 +16,9 @@ Mapping (docs/plans and the dry-run handoff):
 - checkout = the listed price in USDC base units on the allowlisted network and asset, 120 s timeout.
 - Known wallets: the top KNOWN_TOP sellers by review count among those rated >= 4.8 (or >= 99.5% positive).
   Everyone else is an unknown wallet (paid only up to the cap). There is no CRS.
-- Wallet first-seen (a heuristic; we have no wallet history): known -> as_of - 365 days; any marketplace rating or
-  review count -> as_of - 180 days; otherwise as_of.
+- Wallet first-seen: none by default, since we have no real wallet history (made-up dates for real wallets only
+  would be a tell). --wallet-history restores the old heuristic (known -> as_of - 365 days; any rating or review
+  count -> as_of - 180 days; otherwise as_of), for comparison runs only.
 - Medians per (product_key, condition) from the train side only, groups of at least MIN_SALES; keys without enough
   sales fall back to their type's median per condition (level "type").
 - Case per listing: its own product, max_price = max(price, median) * 1.25, spend_remaining = 500.
@@ -36,7 +37,7 @@ from urllib.parse import urlparse
 from calhacks_contracts import Case, KnownSeller, Listing, ListingMeta, Mandate
 from calhacks_contracts.families import allowlist
 
-MAPPING_VERSION = "scrape-map/1"
+MAPPING_VERSION = "scrape-map/2"
 KNOWN_TOP = 10
 MIN_SALES = 3
 PRICE_FACTOR = 1.25
@@ -152,7 +153,7 @@ def case_for(l: Listing, med: dict[tuple[str, str], float]) -> Case:
                                                          spend_remaining=SPEND))
 
 
-def build(docs: list[dict], as_of: str) -> dict:
+def build(docs: list[dict], as_of: str, wallet_history: bool = False) -> dict:
     """Pure mapping (no I/O): returns everything the snapshot files hold."""
     as_of_d = date.fromisoformat(as_of)
     mapped, drops, sellers = [], Counter(), {}
@@ -177,10 +178,10 @@ def build(docs: list[dict], as_of: str) -> dict:
     for side in out.values():
         side["cases"] = [case_for(l, med) for l in side["listings"]]
         side["wallets"] = {sellers[l.seller.id]["pay_to"].lower(): first_seen(sellers[l.seller.id], known_wallets, as_of_d)
-                           for l in side["listings"]}
+                           for l in side["listings"]} if wallet_history else {}
     every = [KnownSeller(seller_id=s["seller_id"], pay_to=s["pay_to"], domain=s["domain"]) for s in sellers.values()]
     return {"sides": out, "known": known, "known_all": every, "medians": med_rows, "drops": dict(drops),
-            "sellers": sellers}
+            "sellers": sellers, "wallet_history": wallet_history}
 
 
 def summarize(snap: dict, n_docs: int, as_of: str, scrape_state: list) -> dict:
@@ -203,6 +204,7 @@ def summarize(snap: dict, n_docs: int, as_of: str, scrape_state: list) -> dict:
         "as_of": as_of, "source": "calhacks.listings (read-only)", "source_docs": n_docs, "drops": snap["drops"],
         "scrape_state": scrape_state, "split": f"sha256(seller.id) % {LOCKED_SHARE} == 0 -> locked_test",
         "known_rule": f"top {KNOWN_TOP} by reviewCount among rating >= 4.8 or positivePercent >= 99.5",
+        "wallet_history": snap.get("wallet_history", False),
         "known_sellers": len(snap["known"]), "all_sellers": len(snap["known_all"]),
         "medians": {"rows": len(snap["medians"]), "min_sales": MIN_SALES, "from": "train side only",
                     "by_level": dict(Counter(m["level"] for m in snap["medians"]))},
@@ -256,12 +258,13 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, required=True)
     ap.add_argument("--as-of", default=date.today().isoformat())
+    ap.add_argument("--wallet-history", action="store_true", help="heuristic first-seen dates (comparison runs only)")
     a = ap.parse_args(argv)
     if (a.out / "manifest.json").exists():
         print(json.dumps({"error": f"{a.out} already holds a snapshot; snapshots are frozen"}))
         return 2
     docs, state = read_scrape()
-    snap = build(docs, a.as_of)
+    snap = build(docs, a.as_of, a.wallet_history)
     manifest = write(snap, summarize(snap, len(docs), a.as_of, state), a.out)
     print(json.dumps({k: manifest[k] for k in ("source_docs", "drops", "known_sellers", "medians", "sides")}, indent=1,
                      default=str))

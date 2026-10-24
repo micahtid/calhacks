@@ -61,13 +61,14 @@ def seed_repo(r, snap: Path, side: str, all_known: bool, as_of: str) -> dict:
         r.put_known_seller(k)
     for m in json.loads((snap / "medians.json").read_text()):
         r.put_median(m["product_key"], m["condition"], m["median"], m["n"], f"scrape:{m['level']}", as_of)
+    history = json.loads((snap / "manifest.json").read_text()).get("wallet_history", True)  # v1 snapshots had it
     wallets = json.loads((d / "wallets.json").read_text())
-    if all_known:  # every real seller is vouched for: give their wallets the known-wallet history
+    if all_known and history:  # every real seller is vouched for: give their wallets the known-wallet history
         old = (date.fromisoformat(as_of) - timedelta(days=365)).isoformat()
         wallets = {w: old for w in wallets}
     for w, seen in wallets.items():
         r.touch_wallet(w, seen)
-    for k in known:
+    for k in known if history else ():
         r.touch_wallet(k.pay_to, (date.fromisoformat(as_of) - timedelta(days=365)).isoformat())
     return {"listings": len(listings), "known_sellers": len(known)}
 

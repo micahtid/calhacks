@@ -76,10 +76,7 @@ def test_build_splits_by_seller_and_derives_references():
     for c, l in zip(train["cases"], train["listings"]):
         assert c.mandate.product_key == l.item.product_key and c.mandate.spend_remaining == 500
         assert c.mandate.max_price >= round(l.item.price * 1.25, 2)
-    # wallet first-seen heuristic
-    known = {k.pay_to.lower() for k in snap["known"]}
-    for w, seen in train["wallets"].items():
-        assert seen == ("2025-10-24" if w in known else seen)
+    assert train["wallets"] == {}  # no wallet history unless asked for
 
 
 def test_type_level_median_fallback():
@@ -107,4 +104,12 @@ def test_fresh_sellers_stay_on_the_base_marketplace():
     base, _, _ = scrape_map.map_doc(doc(5), AS_OF)
     seller, sim = mutate.fresh_seller(random.Random(1), base)
     assert seller["domain"] == "ebay.com" and seller["id"].startswith("ebay:")
-    assert seller["pay_to"].lower() in sim.wallets
+    assert not sim.wallets  # no invented wallet history (A5)
+
+
+def test_no_wallet_history_by_default():
+    docs = [doc(i, seller=f"s{i % 20}") for i in range(60)]
+    plain = scrape_map.build(docs, AS_OF)
+    assert all(side["wallets"] == {} for side in plain["sides"].values())
+    with_hist = scrape_map.build(docs, AS_OF, wallet_history=True)
+    assert any(side["wallets"] for side in with_hist["sides"].values())

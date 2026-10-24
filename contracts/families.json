@@ -61,7 +61,7 @@
       "id": "hidden_text",
       "label": "scam",
       "expected_layer": "layer2",
-      "needs_llm": false,
+      "needs_llm": true,
       "description": "Invisible characters, mixed alphabets (homoglyphs) or hidden instructions inside item.text."
     },
     {
@@ -96,7 +96,7 @@
       "id": "legit_real_discount",
       "label": "legit",
       "expected_layer": null,
-      "needs_llm": false,
+      "needs_llm": true,
       "description": "Honest listing at 60-85% of median with a plausible reason in the text."
     },
     {
@@ -112,12 +112,20 @@
       "expected_layer": null,
       "needs_llm": true,
       "description": "Honest listing whose reviews include some negative ones."
+    },
+    {
+      "id": "legit_rewrite",
+      "label": "legit",
+      "expected_layer": null,
+      "needs_llm": true,
+      "description": "An honest real listing reworded by the LLM with the same rewrite prompt the scam families use, so LLM-written style appears on both sides."
     }
   ],
   "legit_hard": [
     "legit_real_discount",
     "legit_new_seller",
-    "legit_mixed_reviews"
+    "legit_mixed_reviews",
+    "legit_rewrite"
   ],
   "real_family": "real"
 }

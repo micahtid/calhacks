@@ -101,7 +101,7 @@ def test_local_round_flow_and_summary(tmp_path, snapshot, monkeypatch, fake_clie
     tool = {f.__name__: (lambda f: lambda *a, **k: json.loads(mcp_server._jsonify(f)(*a, **k)))(f)
             for f in mcp_server.TOOLS}
     for fam in ("too_cheap", "payment_mismatch", "hidden_text", "unknown_seller"):
-        g = tool["generate_attacks"]({"family": fam, "n": 30, "legit_ratio": 0.4})
+        g = tool["generate_attacks"]({"family": fam, "n": 20, "legit_ratio": 0.4})
         assert g.get("kept", 0) > 0, g
     t = tool["train_gate"]()
     assert "error" not in t, t

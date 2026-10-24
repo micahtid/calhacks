@@ -26,6 +26,9 @@ from redteam.config import (BATCH_SIZE, BULK_MODELS, TOKENS_PER_SLOT, CONCURRENC
                             legit_hard, usd)
 
 
+OFFLINE_TASKS = ("hidden_text", "legit_real_discount")  # have phrase pools when no Bitdeer client is available
+
+
 class SpecError(ValueError):
     pass
 
@@ -72,10 +75,14 @@ def _bases(r: Repo, s: AttackSpec) -> list[Listing]:
     return sorted(bases, key=lambda l: l.listing_id)
 
 
-def _apply_llm(m: mutate.Mutation, base: Listing, out: dict, task: str | None) -> tuple[str, list[str], str | None]:
+def _apply_llm(m: mutate.Mutation, base: Listing, out: dict, task: str | None,
+               rng: random.Random | None = None) -> tuple[str, list[str], str | None]:
     text = out.get("text") or base.item.text
     reviews = out.get("reviews") if out.get("reviews") is not None else list(base.reviews)
     ev = out.get("tactic_evidence")
+    if task == "hidden_text" and ev:  # the LLM wrote the instruction; code hides it in the real text
+        text = mutate.hide(base.item.text, ev.strip(), rng or random.Random(m.listing["listing_id"]))
+        ev = ev.strip()
     if text != base.item.text:
         m.listing["item"]["text"] = text
         m.diff["item.text"] = f"rewritten by LLM ({task or 'honest'})" + (f": {ev[:80]!r}" if ev else "")
@@ -130,8 +137,22 @@ def run_spec(spec: dict | AttackSpec, *, round_: int, r: Repo | None = None, cli
     if llm_queue and client is None:
         try:
             client = bitdeer.make_client()
-        except RuntimeError as e:  # no key: code-only slots still count, LLM slots are dropped and logged
-            dropped += [{"listing_id": q[0], "family": q[1], "why": f"no Bitdeer client: {e}"} for q in llm_queue]
+        except RuntimeError as e:  # no key: offline phrase pools where they exist, other LLM slots dropped and logged
+            for lid, fam, base, m, mandate in llm_queue:
+                if m.llm_task not in OFFLINE_TASKS:
+                    dropped.append({"listing_id": lid, "family": fam, "why": f"no Bitdeer client: {e}"})
+                    continue
+                prng = random.Random(_seed(lid, "offline"))
+                phrase = mutate.offline_phrase(m.llm_task, prng)
+                out = {"text": None if m.llm_task == "hidden_text" else base.item.text.rstrip() + " " + phrase,
+                       "reviews": None, "tactic_evidence": phrase}
+                _apply_llm(m, base, out, m.llm_task, prng)
+                try:
+                    kept.append(mutate.finish(lid, fam, base, m, mandate, spec_id=s.spec_id,
+                                              knowledge=s.attacker_knowledge, model=None, temperature=None, mode=s.mode))
+                    sim.extend(m.refs)
+                except (ValidationError, ValueError) as err:
+                    dropped.append({"listing_id": lid, "family": fam, "why": f"invalid: {str(err)[:120]}"})
             llm_queue = []
     if llm_queue:
         chunks = [llm_queue[j:j + BATCH_SIZE] for j in range(0, len(llm_queue), BATCH_SIZE)]
@@ -163,8 +184,8 @@ def run_spec(spec: dict | AttackSpec, *, round_: int, r: Repo | None = None, cli
                         continue
                     trial = mutate.Mutation({**m.listing, "item": dict(m.listing["item"]),
                                              "reviews": list(m.listing["reviews"])}, dict(m.diff), m.refs, m.llm_task)
-                    text, reviews, ev = _apply_llm(trial, base, out, m.llm_task)
-                    errs = prompts.problems(m.llm_task, s.mode, text, reviews, ev)
+                    text, reviews, ev = _apply_llm(trial, base, out, m.llm_task, random.Random(_seed(lid, "hide")))
+                    errs = prompts.problems(m.llm_task, s.mode, text, reviews, ev, base.item.text, list(base.reviews))
                     if errs:
                         fails.append((p, errs[0]))
                         continue

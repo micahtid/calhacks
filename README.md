@@ -170,10 +170,16 @@ listings live in MongoDB through `calhacks-contracts`; nothing is read from loca
   - placeholder wallets per seller
   - brand + type product keys
   - the top 10 reputable sellers as known wallets
+  - no wallet first-seen dates by default (no real history yet; `--wallet-history` restores the old heuristic for comparisons)
   - medians from the training side (with a type-level fallback)
   - a $500 budget per case
   - a seller-level split: ~80% training bases, ~20% locked-test bases reserved for the holdout
   `uv run --project redteam python -m redteam.scrape_map --out <dir> --as-of YYYY-MM-DD`
+- **Artifact audit** (`redteam.audit`): checks whether generated listings can be told apart from real ones by
+  anything other than the attack. Per family, a classifier on untouched traits (seller-name shape, wallet age,
+  review count and length, text length) reports a grouped-CV AUC and a permutation p-value; a family fails when
+  AUC > 0.6 and p < 0.05 (a tell the Gate could learn instead of the scam). Each family is compared with the real
+  listings it draws bases from. `uv run --project redteam python -m redteam.audit --store <local store dir>`
 - **Local dry runs** (`redteam.dryrun`): the full loop against a snapshot with no MongoDB. A file-backed store
   (`REDTEAM_LOCAL_STORE`) is shared between the coordinator and the MCP server and saved after every tool call. The
   holdout is built from the snapshot's locked-test listings (including those real listings, unmodified).
@@ -187,7 +193,14 @@ listings live in MongoDB through `calhacks-contracts`; nothing is read from loca
   ```
 - **Attack factory** (`redteam.generate`): an `AttackSpec` in, `SyntheticListing`s out to MongoDB. The main mode,
   `mutate_real`, copies a real listing and changes one thing in code (wallet, price, checkout id, product, seller,
-  domain, hidden text), recorded in the answer key's `attack_diff`. Families that need wording (prompt injection,
+  domain, hidden text), recorded in the answer key's `attack_diff`. `mutate.ALLOWED_DIFF` lists the only fields each
+  family may change and anything else is rejected, so a scam keeps its real seller; only seller-themed families
+  (unknown seller, new honest seller, lookalikes) get a new one, named in the style of real sellers on the same
+  marketplace (`mutate.styled_name`), never from a fixed pattern. Hidden-text instructions and honest discount reasons are worded by the LLM (code
+  still hides the instruction); without a Bitdeer client they come from large combinatorial pools, never a few fixed
+  sentences. Every LLM rewrite must keep the base listing's shape (text length within 0.7-1.4x, the same number of
+  reviews), and a `legit_rewrite` control family runs honest listings through the same prompt, so LLM-written style
+  shows up on both sides. Families that need wording (prompt injection,
   fake reviews, urgency, mixed reviews) get their text or reviews rewritten by Bitdeer (GLM-5.3-Flash and
   DeepSeek-V4.1-Flash in rotation). Bad LLM output is retried once, then dropped, and drops are counted per family.
 - **Holdout** (`redteam.holdout`): built once from the real listings, holding the two held-out families plus a slice
