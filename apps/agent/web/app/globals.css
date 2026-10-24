@@ -500,20 +500,6 @@ svg {
   margin-top: 40px;
 }
 
-.ledger-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 16px 10px;
-  color: var(--text-2);
-  font-size: 12px;
-  font-weight: 400;
-}
-
-.count {
-  color: var(--text-4);
-}
-
 .ledger-card {
   overflow: hidden;
   background: var(--surface);
@@ -542,22 +528,8 @@ svg {
   border-top: 1px solid var(--border);
 }
 
-.tx-row:not(.static):hover {
-  background: var(--panel);
-}
-
-.tx-hit {
-  position: absolute;
-  inset: 0;
-}
-
-.tx-hit:focus-visible {
-  outline: 2px solid var(--text-4);
-  outline-offset: -2px;
-}
-
 .tx-item,
-.tx-eta,
+.tx-date,
 .tx-amount {
   min-width: 0;
   pointer-events: none;
@@ -565,7 +537,7 @@ svg {
 
 .cell-main,
 .cell-sub,
-.tx-eta,
+.tx-date,
 .tx-amount {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -583,24 +555,9 @@ svg {
   font-size: 12px;
 }
 
-.tx-eta {
-  display: flex;
-  align-items: center;
-  gap: 7px;
+.tx-date {
   color: var(--text-3);
-}
-
-.tx-eta.shipping {
-  color: var(--text-2);
-}
-
-.tx-eta.shipping::before {
-  content: "";
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--amber);
-  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .tx-amount {
@@ -640,6 +597,10 @@ svg {
   max-width: 520px;
 }
 
+.field + .field {
+  margin-top: 28px;
+}
+
 .field label {
   display: block;
   font-weight: 500;
@@ -649,6 +610,10 @@ svg {
   margin-top: 4px;
   color: var(--text-3);
   font-size: 12px;
+}
+
+.hint.error {
+  color: var(--red);
 }
 
 .field-row {
@@ -1356,7 +1321,7 @@ kbd {
     row-gap: 4px;
   }
 
-  .tx-eta {
+  .tx-date {
     grid-row: 2;
     grid-column: 1;
   }

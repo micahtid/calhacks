@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { CHATS, TRANSACTIONS, type Chat } from "@/lib/data";
+import { CHATS, type Chat } from "@/lib/data";
 import { ChatView } from "./ChatView";
 import { NewChat } from "./NewChat";
 import { Settings } from "./Settings";
@@ -47,9 +47,7 @@ export function App() {
             }
           />
         )}
-        {view.kind === "transactions" && (
-          <Transactions transactions={TRANSACTIONS} chats={chats} onOpenChat={(id) => setView({ kind: "chat", id })} />
-        )}
+        {view.kind === "transactions" && <Transactions />}
         {view.kind === "settings" && <Settings />}
       </main>
     </div>

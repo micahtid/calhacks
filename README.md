@@ -168,11 +168,27 @@ Browser (Vercel)  <- SSE -  agent API (Railway, FastAPI)  <- NDJSON -  store-cra
 | `NEXT_PUBLIC_AGENT_API_URL` | agent web | Agent API origin, inlined at build time (default `http://localhost:8000`) |
 | `BUYER_PRIVATE_KEY` | agent API | Hunter's wallet key; signs x402 payments in `app/pay.py`. Unset: runs stop before paying |
 | `SHIP_TO_NAME`, `SHIP_TO_ADDRESS` | agent API | Optional ship-to sent at checkout (default a demo address; nothing ships) |
+| `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `CDP_WALLET_SECRET` | agent API | Coinbase Developer Platform keys for the faucet behind Add Funds (`app/wallet.py`). Unset: only Add Funds fails |
 
 Locally the agent API reads `apps/agent/api/.env` and the web app `apps/agent/web/.env.local`; both have a
 `.env.example`. The API depends on `contracts/` (`calhacks-contracts`, a uv path dependency like in `gate/` and
 `redteam/`), so Railway builds it from the repo root: root directory `/`, config file `apps/agent/api/railway.json`,
 which builds `apps/agent/api/Dockerfile` and redeploys on changes under `apps/agent/api/` or `contracts/`.
+
+## Wallet (Settings and Transactions)
+
+The agent web app reads Hunter's wallet (`AGENT_WALLET` in `apps/agent/web/lib/wallet.ts`) live from Base Sepolia
+through the agent API (`app/wallet.py`):
+
+- `GET /wallet/{address}`: the USDC balance, read on chain with `eth_call` on `https://sepolia.base.org`, and every
+  USDC transfer in or out (`hash`, `at`, `direction` sent|received, `amount`, `counterparty`, `explorer`), newest
+  first, from the Blockscout API (`https://base-sepolia.blockscout.com`, no key needed, up to 250 transfers).
+- `POST /wallet/{address}/fund`: test USDC from the CDP faucet (`request_faucet`, Base Sepolia). Measured: 1 USDC a
+  request, landing within a few seconds. The faucet rate-limits each address; its refusal comes back as the `detail`.
+- **Settings** shows the balance and an Add Funds button, then reads the balance again until the funds land.
+- **Transactions** lists the real transfers (sent or received, counterparty, time, amount, Basescan link), with
+  totals spent and left. The sample transactions are gone; the sample chats remain.
+- Self-check: `uv run python -m app.wallet` (from `apps/agent/api`).
 
 ## Hunter chat run (Scout + live search)
 
@@ -346,6 +362,7 @@ Keep this section current (see `AGENTS.md`).
 - [ ] Apify listing ingestion
 - [x] Live store search: store-crawler Apify Standby Actor streaming listings and item pages, relayed as SSE by the agent API (`GET /search`)
 - [x] Mock Gate verdicts in the search stream (`GateDecision` shape, `model_version: "mock"`), standing in for the real Gate
+- [x] Wallet in the agent web app: live USDC balance and Add Funds (CDP faucet) in Settings, real Base Sepolia transfers in Transactions
 - [x] Agent web chat runs live from `GET /chat` in the demo's design (editable prompt, live feed and checks, picks, collapsed reasoning, checkout steps, receipt)
 - [x] x402 checkout in the agent API (`app/pay.py`): real 402, double-check, EIP-3009 signing, settlement; `BUYER_PRIVATE_KEY` is the demo wallet (`0x7D06…Cea8`, also in `apps/agent/web/lib/wallet.ts`), which needs more faucet USDC before it can pay
 - [x] Scout on Bitdeer GLM-5.3-Flash: reads the request, ranks Gate-approved listings, streams its reasoning (`GET /chat`)

@@ -7,13 +7,13 @@ from pathlib import Path
 
 import httpx
 from dotenv import load_dotenv
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")  # local secrets; Railway sets real env vars instead
 
-from app import gate, pay, scout  # noqa: E402
+from app import gate, pay, scout, wallet  # noqa: E402
 from app.search import search  # noqa: E402
 
 
@@ -38,6 +38,34 @@ app.add_middleware(
 def health() -> dict[str, str | None]:
     """`buyer` is the address BUYER_PRIVATE_KEY signs for (public, never the key), or null when it isn't set."""
     return {"status": "ok", "buyer": pay.buyer_address()}
+
+
+def checked(address: str) -> str:
+    if not wallet.ADDRESS.match(address):
+        raise HTTPException(400, "not a wallet address")
+    return address
+
+
+@app.get("/wallet/{address}")
+async def wallet_info(address: str) -> dict:
+    """The wallet's USDC balance and every USDC transfer in or out of it on Base Sepolia, newest first."""
+    client = app.state.client
+    try:
+        return {"address": checked(address), "balance": await wallet.balance(client, address),
+                "transactions": await wallet.transfers(client, address)}
+    except httpx.HTTPError as e:
+        raise HTTPException(502, f"Base Sepolia couldn't be read: {e!r}") from e
+
+
+@app.post("/wallet/{address}/fund")
+async def wallet_fund(address: str) -> dict:
+    """Test USDC from the CDP faucet. The faucet's own refusal (e.g. its rate limit) comes back as the detail."""
+    try:
+        return await wallet.fund(checked(address))
+    except HTTPException:
+        raise
+    except Exception as e:  # missing CDP credentials, faucet limit, network errors
+        raise HTTPException(502, getattr(e, "error_message", None) or str(e) or repr(e)) from e
 
 
 def sse(event: dict) -> str:

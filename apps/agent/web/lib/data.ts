@@ -1,4 +1,4 @@
-// Sample chats and transactions until the FastAPI backend serves real ones.
+// Sample chats until the FastAPI backend serves real ones. Transactions are real: see lib/wallet.ts.
 
 import type { Run } from "./run";
 
@@ -15,20 +15,6 @@ export type Chat = {
   live?: { prompt: string; saved?: Run };
   messages: Message[];
 };
-
-// Hunter only pays for listings that pass every check, so every transaction is a completed payment.
-export type Transaction = {
-  id: string;
-  chatId: string;
-  item: string;
-  store: string;
-  amount: number;
-  paidAt: string;
-  txHash: string;
-  delivery: { status: "shipping"; eta: string } | { status: "delivered"; at: string };
-};
-
-export const EXPLORER = "https://sepolia.basescan.org";
 
 export const CHATS: Chat[] = [
   {
@@ -80,48 +66,5 @@ export const CHATS: Chat[] = [
       { role: "user", text: "Buy a Game Boy Tetris cartridge. Cosmetic wear is fine, keep it under $4." },
       { role: "agent", text: "I bought a working copy with a scuffed label from mzn for 2.50 USDC." },
     ],
-  },
-];
-
-export const TRANSACTIONS: Transaction[] = [
-  {
-    id: "t4",
-    chatId: "c5",
-    item: "The Legend of Zelda: Link's Awakening",
-    store: "mzn",
-    amount: 7.25,
-    paidAt: "2026-10-22T19:30:00Z",
-    txHash: "0x5d1e8a3fc7b24096e3a1d58c0f72b9e4a6d30c8f1b57e29a4c06d3f8b1e7a25c",
-    delivery: { status: "shipping", eta: "2026-10-27T00:00:00Z" },
-  },
-  {
-    id: "t3",
-    chatId: "c2",
-    item: "Mario Kart 64",
-    store: "mzn",
-    amount: 9.0,
-    paidAt: "2026-10-21T21:16:00Z",
-    txHash: "0x8f2c41a7d9e03b6c5a1e7d24f90b3c8e6a52d1f7b09e4c3a28d6f15b7e0c9a43",
-    delivery: { status: "shipping", eta: "2026-10-24T00:00:00Z" },
-  },
-  {
-    id: "t2",
-    chatId: "c1",
-    item: "Pokémon Red",
-    store: "mzn",
-    amount: 8.5,
-    paidAt: "2026-10-17T16:42:00Z",
-    txHash: "0x3b7e9d10c4a25f86e1d3b0a97c64e2f58d1a0b3c7e92f46d85a1c0e3b7f29d64",
-    delivery: { status: "delivered", at: "2026-10-20T00:00:00Z" },
-  },
-  {
-    id: "t1",
-    chatId: "c4",
-    item: "Tetris",
-    store: "mzn",
-    amount: 2.5,
-    paidAt: "2026-10-12T14:05:00Z",
-    txHash: "0x9a4c2e71b05d38f6c1e9a27d4b80f35e6c2a19d7b04e3f58a6c1d02e9b7f34a1",
-    delivery: { status: "delivered", at: "2026-10-15T00:00:00Z" },
   },
 ];
