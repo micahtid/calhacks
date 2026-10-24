@@ -111,12 +111,17 @@ def days_ago(n: int) -> str:
     return (TODAY - timedelta(days=n)).isoformat()
 
 
-def fresh_seller(rng: random.Random) -> tuple[dict, SimRefs]:
-    """A new seller with an unknown wallet first seen in the last three weeks."""
+def fresh_seller(rng: random.Random, like: Listing) -> tuple[dict, SimRefs]:
+    """A new seller with an unknown wallet first seen in the last three weeks, on the same site as `like`.
+
+    The domain and the id style follow the base listing (real marketplace sellers all share the marketplace host), so
+    a generated seller differs from a real one only in its wallet and history, never in a made-up domain the Gate
+    could learn instead of the scam."""
     word = rng.choice(["nova", "harbor", "pine", "atlas", "cobalt", "ember", "willow", "summit", "relay", "quarry"])
     word2 = rng.choice(["goods", "market", "trade", "outlet", "supply", "depot", "finds", "resale"])
-    sid = f"seller_{word}{word2}_{rng.randrange(100, 999)}"
-    seller = {"id": sid, "domain": f"{word}{word2}.example", "pay_to": address(rng)}
+    prefix = like.seller.id.split(":", 1)[0] + ":" if ":" in like.seller.id else "seller_"
+    sid = f"{prefix}{word}{word2}{rng.randrange(100, 999)}"
+    seller = {"id": sid, "domain": like.seller.domain, "pay_to": address(rng)}
     refs = SimRefs(wallets={seller["pay_to"].lower(): days_ago(rng.randrange(0, 21))})
     return seller, refs
 
@@ -142,7 +147,7 @@ def _move_to_trusted(d: dict, base: Listing, refs: ReferenceSet, rng: random.Ran
     (eligible_bases keeps those within the unknown-seller cap)."""
     if trusted(base, refs):
         return SimRefs()
-    seller, sim = fresh_seller(rng)
+    seller, sim = fresh_seller(rng, base)
     for k in ("id", "domain", "pay_to"):
         _set(d, f"seller.{k}", seller[k], diff)
     _set(d, "checkout.pay_to", seller["pay_to"], diff)
@@ -210,7 +215,7 @@ def apply(family: str, base: Listing, refs: ReferenceSet, rng: random.Random, ot
             raise MutationError("product_switch needs another product key in medians or real listings")
         _set(d, "item.product_key", rng.choice(cands), diff)
     elif family == "unknown_seller":
-        seller, sim = fresh_seller(rng)
+        seller, sim = fresh_seller(rng, base)
         for k in ("id", "domain", "pay_to"):
             _set(d, f"seller.{k}", seller[k], diff)
         _set(d, "checkout.pay_to", seller["pay_to"], diff)
@@ -230,7 +235,7 @@ def apply(family: str, base: Listing, refs: ReferenceSet, rng: random.Random, ot
         _set(d, "item.text", text[:cut] + payload + text[cut:], diff)
     elif family == "lookalike_domain":
         target = rng.choice(known).domain if known else base.seller.domain
-        seller, sim = fresh_seller(rng)
+        seller, sim = fresh_seller(rng, base)
         for k in ("id", "pay_to"):
             _set(d, f"seller.{k}", seller[k], diff)
         _set(d, "seller.domain", lookalike_domain(target, rng), diff)
@@ -244,7 +249,7 @@ def apply(family: str, base: Listing, refs: ReferenceSet, rng: random.Random, ot
         _set_price(d, _median(base, refs) * rng.uniform(0.6, 0.85), diff)
         _set(d, "item.text", base.item.text.rstrip() + " " + rng.choice(DISCOUNT_REASONS), diff)
     elif family == "legit_new_seller":
-        seller, sim = fresh_seller(rng)
+        seller, sim = fresh_seller(rng, base)
         for k in ("id", "domain", "pay_to"):
             _set(d, f"seller.{k}", seller[k], diff)
         _set(d, "checkout.pay_to", seller["pay_to"], diff)

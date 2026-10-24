@@ -58,6 +58,12 @@ def test_round_flow_in_process(round1, fake_client, monkeypatch):
     assert round1.db.specs.count_documents({"round": 1}) >= 4
 
 
+def test_null_spec_fields_mean_defaults(round1):
+    g = mcp_server.generate_attacks({"family": "payment_mismatch", "n": 5, "base_listing_ids": None,
+                                     "target_weakness": None, "model": None, "mode": "mutate_real"})
+    assert g.get("kept", 0) > 0, g
+
+
 def test_stdio_server(tmp_path, repo, fake_client):
     pytest.importorskip("mcp")
     from mcp import ClientSession, StdioServerParameters
@@ -92,3 +98,11 @@ def test_stdio_server(tmp_path, repo, fake_client):
     assert train["model_id"].startswith("r1-stub"), train
     assert ri["round"] == 1 and "attack_families" in ri["_help"]
     assert promo["promoted"] and promo["holdout_recorded"]
+
+
+def test_generate_calls_are_capped_to_stay_under_the_mcp_timeout(round1):
+    big = mcp_server.generate_attacks({"family": "too_cheap", "n": mcp_server.MAX_CALL_LISTINGS + 1})
+    assert "split it" in big["error"]
+    wordy = mcp_server.generate_attacks({"family": "prompt_injection", "n": mcp_server.MAX_CALL_LLM + 5,
+                                         "legit_ratio": 0})
+    assert "text rewrites" in wordy["error"]

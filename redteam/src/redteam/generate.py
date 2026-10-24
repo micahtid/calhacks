@@ -22,7 +22,7 @@ from calhacks_contracts.db import ReferenceSet, Repo
 from pydantic import ValidationError
 
 from redteam import bitdeer, mutate, prompts, store
-from redteam.config import (BATCH_SIZE, BULK_MODELS, CONCURRENCY, families, holdout_families, legit_families,
+from redteam.config import (BATCH_SIZE, BULK_MODELS, TOKENS_PER_SLOT, CONCURRENCY, families, holdout_families, legit_families,
                             legit_hard, usd)
 
 
@@ -151,7 +151,8 @@ def run_spec(spec: dict | AttackSpec, *, round_: int, r: Repo | None = None, cli
                 slots = [prompts.LlmSlot(lid, m.llm_task, s.mode, b.item.product_key, b.item.condition, b.item.text,
                                          tuple(b.reviews)) for lid, _, b, m, _ in pending]
                 payload = bitdeer.complete_json(client, model, prompts.build_messages(slots, s.target_weakness,
-                                                                                      white_box), temp, tally)
+                                                                                      white_box), temp, tally,
+                                                max_tokens=len(slots) * TOKENS_PER_SLOT)
                 outs = prompts.parse_slots(payload) if payload is not None else {}
                 fails = []
                 for p in pending:

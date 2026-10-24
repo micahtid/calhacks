@@ -5,9 +5,15 @@ Real listings (answer key family "real") belong to every round.
 
 Tests: REDTEAM_MONGOMOCK=1 makes repo() an in-memory mongomock database seeded from contracts/tests/fixtures
 (used by subprocess tests such as the stdio MCP server test). Never set it for real runs.
+
+Local dry runs: REDTEAM_LOCAL_STORE=<dir> makes repo() an in-memory database loaded from <dir>/<collection>.jsonl;
+flush() writes it back (atomically, one file per collection) and reload() drops the in-memory copy so the next repo()
+reads the files again. Nothing touches MongoDB in this mode.
 """
 import json
 import os
+import threading
+from pathlib import Path
 from collections import Counter
 from collections.abc import Iterable
 from datetime import datetime, timezone
@@ -20,10 +26,17 @@ from calhacks_contracts.splits import split_of
 _repo: Repo | None = None
 
 
+def local_dir() -> Path | None:
+    d = os.environ.get("REDTEAM_LOCAL_STORE")
+    return Path(d) if d else None
+
+
 def repo() -> Repo:
     global _repo
     if _repo is None:
-        if os.environ.get("REDTEAM_MONGOMOCK") == "1":
+        if local_dir():
+            _repo = load_local(local_dir())
+        elif os.environ.get("REDTEAM_MONGOMOCK") == "1":
             _repo = seeded_mock_repo()
         else:
             _repo = Repo(get_db())
@@ -36,8 +49,8 @@ def set_repo(r: Repo | None) -> None:
     _repo = r
 
 
-def seeded_mock_repo() -> Repo:
-    """mongomock Repo holding the contracts test fixtures as real listings and references (tests only)."""
+def _patch_mongomock():
+    """mongomock can't take pymongo 4.10+ ReplaceOne objects in bulk_write; apply them one by one."""
     import mongomock
     from pymongo import ReplaceOne
 
@@ -47,6 +60,52 @@ def seeded_mock_repo() -> Repo:
             self.replace_one(r._filter, r._doc, upsert=r._upsert)
 
     mongomock.collection.Collection.bulk_write = _bulk_write
+    return mongomock
+
+
+def empty_local_repo() -> Repo:
+    return Repo(_patch_mongomock().MongoClient()["redteam_local"])
+
+
+def load_local(d: Path) -> Repo:
+    r = empty_local_repo()
+    for f in sorted(Path(d).glob("*.jsonl")):
+        docs = [json.loads(line) for line in f.read_text(encoding="utf-8").splitlines() if line.strip()]
+        if docs:
+            r.db[f.stem].insert_many(docs)
+    return r
+
+
+_FLUSH_LOCK = threading.Lock()
+
+
+def write_local(r: Repo, d: Path) -> None:
+    d = Path(d)
+    d.mkdir(parents=True, exist_ok=True)
+    with _FLUSH_LOCK:  # tool calls can run in parallel threads
+        for name in r.db.list_collection_names():
+            body = "".join(json.dumps(doc, default=str, ensure_ascii=False) + "\n" for doc in r.db[name].find())
+            tmp = d / f".{name}.{os.getpid()}.{threading.get_ident()}.tmp"
+            tmp.write_text(body, encoding="utf-8", newline="\n")
+            os.replace(tmp, d / f"{name}.jsonl")
+
+
+def flush() -> None:
+    """Local dry runs only: write the in-memory store back to REDTEAM_LOCAL_STORE."""
+    if local_dir() and _repo is not None:
+        write_local(_repo, local_dir())
+
+
+def reload() -> None:
+    """Local dry runs only: forget the in-memory copy so the next repo() re-reads the files another process wrote."""
+    global _repo
+    if local_dir():
+        _repo = None
+
+
+def seeded_mock_repo() -> Repo:
+    """mongomock Repo holding the contracts test fixtures as real listings and references (tests only)."""
+    mongomock = _patch_mongomock()
     from calhacks_contracts.ingest import ingest_listings
 
     r = Repo(mongomock.MongoClient()["redteam_mock"])

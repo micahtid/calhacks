@@ -17,7 +17,7 @@ import os
 import sys
 import time
 
-from calhacks_contracts import CoordinatorOutput, Cost, PromotionDecision, RoundMetrics, RoundReport
+from calhacks_contracts import CoordinatorOutput, Cost, PromotionDecision, RoundMetrics, RoundReport, rate
 
 from redteam import gate_client, holdout, promotion, roundstate, store
 from redteam.config import (COORDINATOR_MODEL, DATA, FACTORY_SETTINGS, GATE_DIR, ROUND_WALL_SECONDS, STRATEGIST_DROID,
@@ -88,7 +88,8 @@ def mcp_server(round_: int, max_listings: int):
     env = {"REDTEAM_ROUND": str(round_), "CALHACKS_DATA": str(DATA), "REDTEAM_GATE": gate_client.GATE_BACKEND,
            "REDTEAM_MAX_LISTINGS": str(max_listings), "PYTHONIOENCODING": "utf-8", "UV_SYSTEM_CERTS": "1"}
     for k in ("BITDEER_API_KEY", "CALHACKS_HOLDOUT", "CALHACKS_MODELS", "MONGODB_URI", "MONGODB_DB_REDTEAM",
-              "REDTEAM_MONGOMOCK", "PATH", "NODE", "SYSTEMROOT"):
+              "REDTEAM_MONGOMOCK", "REDTEAM_LOCAL_STORE", "REDTEAM_ATTACKER_KNOWLEDGE", "REDTEAM_SEED", "GATE_AS_OF",
+              "PATH", "NODE", "SYSTEMROOT"):
         if os.environ.get(k):
             env[k] = os.environ[k]
     try:
@@ -179,7 +180,12 @@ def _guard_denials(session_id: str) -> list[dict]:
     log = DATA / "guard.log"
     if not log.exists():
         return []
-    rows = [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines() if l.strip()]
+    rows = []
+    for line in log.read_text(encoding="utf-8").splitlines():
+        try:  # hook processes append concurrently, so a line can be partial
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
     return [{"tool": r["tool"], "why": r["why"]} for r in rows if r["decision"] == "deny" and r.get("session") == session_id]
 
 
@@ -195,11 +201,12 @@ def assemble_report(round_: int, output: CoordinatorOutput | None, session_id: s
         metrics = RoundMetrics.model_validate(last["candidate_val"])
         decision = PromotionDecision.model_validate(last["decision"])
     else:
-        model_id = promotion.current()["model_id"]
+        # No promotion was requested: report the promoted model, else the round's last trained candidate, else zeros.
+        model_id = promotion.current()["model_id"] or (doc.get("candidates") or [None])[-1]
         ev = gate_client.evaluate(model_id, split="val") if model_id else {"error": "no model"}
-        if ev.get("error"):
-            raise RuntimeError(f"no metrics for round {round_}: {ev['error']}")
-        metrics = RoundMetrics.model_validate(ev["metrics"])
+        metrics = RoundMetrics.model_validate(ev["metrics"]) if not ev.get("error") else RoundMetrics(
+            layer1_catches=0, layer2_recall=rate(0, 0), fpr_real=rate(0, 0), per_family={}, recall=rate(0, 0),
+            fpr=rate(0, 0))
         decision = PromotionDecision.model_validate(last["decision"]) if last else \
             PromotionDecision(action="revert", reason="no candidate was submitted for promotion this round")
     gen = doc.get("generation") or {"tokens": 0, "usd": 0.0}
@@ -223,8 +230,9 @@ async def run_round(round_: int, *, model: str, max_listings: int, resume: str |
         "Continue this round from where you stopped, then produce your CoordinatorOutput."
     started = time.time()
     async with session as s:
-        store.save_round(store.repo(), round_, session_id=s.id, coordinator_model=model, started=started,
-                         resumed_from=resume)
+        # Written after the session: during it the MCP server owns the store (a local dry-run store is a set of files,
+        # and an earlier write from this process would be overwritten by the server's, or overwrite them).
+        start_fields = {"session_id": s.id, "coordinator_model": model, "started": started, "resumed_from": resume}
         async with s.stream(prompt, output=CoordinatorOutput, timeout=timeout) as st:
             async for ev in st:
                 kind = type(ev).__name__
@@ -247,9 +255,12 @@ async def run_round(round_: int, *, model: str, max_listings: int, resume: str |
                "tool_calls": len([e for e in events if "tool" in e]),
                "hook_denials": _guard_denials(result.session_id), "permission_log": perm_log}
     output = result.output if isinstance(result.output, CoordinatorOutput) else None
+    store.reload()  # pick up what the MCP server wrote (local dry runs)
+    store.save_round(store.repo(), round_, **start_fields)
     report = assemble_report(round_, output, result.session_id, usage, model)
     store.save_round(store.repo(), round_, report=report.model_dump(mode="json"), usage=summary,
                      coordinator_text=None if output else (result.text or "")[-2000:])
+    store.flush()
     (out_dir / "usage.json").write_text(json.dumps(summary, indent=1, default=str))
     (out_dir / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
     (out_dir / "report.json").write_text(report.model_dump_json(indent=1))

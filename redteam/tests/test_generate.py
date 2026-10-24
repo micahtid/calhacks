@@ -62,7 +62,9 @@ def test_llm_spec_with_mock_client(repo, fake_client):
     assert out["tokens"]["prompt_tokens"] == 100 * out["tokens"]["calls"]
 
 
-def test_missing_and_bad_slots_are_retried_once_then_dropped(repo, fake_client):
+def test_missing_and_bad_slots_are_retried_once_then_dropped(repo, fake_client, monkeypatch):
+    from redteam import generate
+    monkeypatch.setattr(generate, "BATCH_SIZE", 10)  # one batch, so the retry is the second call
     spec = {**SPEC, "spec_id": "S-r", "n": 5, "legit_ratio": 0}
     ids = [f"S1-S-r-{i:04d}" for i in range(5)]
     client = fake_client(drop={ids[0]}, bad_evidence={ids[1]})
@@ -71,6 +73,14 @@ def test_missing_and_bad_slots_are_retried_once_then_dropped(repo, fake_client):
     assert set(slot_ids(client.calls[1])) == {ids[0], ids[1]}
     assert out["kept"] == 4 and out["dropped"] == 1
     assert out["drops_by_family"] == {"prompt_injection": 1}
+
+
+def test_llm_batches_are_small_and_token_cap_scales(repo, fake_client):
+    from redteam.config import BATCH_SIZE, TOKENS_PER_SLOT
+    client = fake_client()
+    run_spec({**SPEC, "spec_id": "S-b", "n": 7, "legit_ratio": 0}, round_=1, r=repo, client=client, models=["m"])
+    assert all(len(slot_ids(c)) <= BATCH_SIZE for c in client.calls)
+    assert all(c["max_tokens"] == len(slot_ids(c)) * TOKENS_PER_SLOT for c in client.calls)
 
 
 def test_generate_mode_rewrites_text_for_code_families(repo, fake_client):

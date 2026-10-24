@@ -19,7 +19,7 @@ import os
 import sys
 from collections import Counter
 
-from calhacks_contracts import Case, HoldoutTotals, Rate, SyntheticListing
+from calhacks_contracts import AnswerKey, Case, GenInfo, HoldoutTotals, Rate, SyntheticListing
 from cryptography.fernet import Fernet
 
 from redteam import gate_client, store
@@ -61,7 +61,12 @@ def _assert_outside_repo():
 
 
 def build(*, force: bool = False, per_family: int = 60, slice_n: int = 20, seed: int = 7, client=None,
-          r=None) -> dict:
+          r=None, include_real: bool = False) -> dict:
+    """Build the sealed holdout from the real listings in `r`.
+
+    include_real (local dry runs, where `r` holds only the locked-test listings): also seal those real listings
+    unmodified as legit rows, plus their wallet first-seen dates, so the holdout measures false blocks on real
+    listings the Gate never trained on."""
     _assert_outside_repo()
     if HOLDOUT_FILE.exists() and not force:
         raise RuntimeError(f"{HOLDOUT_FILE} already exists; the holdout is built once (use --force to rebuild)")
@@ -78,6 +83,14 @@ def build(*, force: bool = False, per_family: int = 60, slice_n: int = 20, seed:
         wallets.update(out["_refs"].wallets)
         dropped.update(out["drops_by_family"])
         tokens.append(out["tokens"])
+    if include_real:
+        ids = r.real_listing_ids()
+        cases = r.cases(ids)
+        for l in r.listings(ids):
+            items.append((SyntheticListing(
+                listing=l, answer_key=AnswerKey(listing_id=l.listing_id, label="legit", family="real"),
+                gen=GenInfo(listing_id=l.listing_id, model=None, spec_id="H-real")), cases[l.listing_id]))
+        wallets = {**r.reference_snapshot().wallets, **wallets}
     payload = {"version": 3, "items": [{"synthetic": s.model_dump(mode="json"), "case": c.model_dump(mode="json")}
                                        for s, c in items],
                "refs": {"wallets": wallets}}

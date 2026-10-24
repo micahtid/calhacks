@@ -165,6 +165,26 @@ Two layers decide whether the wallet may pay; both must say yes. Details: `gate/
 listings live in MongoDB through `calhacks-contracts`; nothing is read from local data files. Full command list:
 `redteam/README.md`.
 
+- **Scraped-listing snapshot** (`redteam.scrape_map`): reads `calhacks.listings` (read-only) and writes a frozen local
+  issue #1 snapshot (e.g. `scrape-v1`). It holds:
+  - placeholder wallets per seller
+  - brand + type product keys
+  - the top 10 reputable sellers as known wallets
+  - medians from the training side (with a type-level fallback)
+  - a $500 budget per case
+  - a seller-level split: ~80% training bases, ~20% locked-test bases reserved for the holdout
+  `uv run --project redteam python -m redteam.scrape_map --out <dir> --as-of YYYY-MM-DD`
+- **Local dry runs** (`redteam.dryrun`): the full loop against a snapshot with no MongoDB. A file-backed store
+  (`REDTEAM_LOCAL_STORE`) is shared between the coordinator and the MCP server and saved after every tool call. The
+  holdout is built from the snapshot's locked-test listings (including those real listings, unmodified).
+  `REDTEAM_ATTACKER_KNOWLEDGE` and `REDTEAM_SEED` fix the attacker type and seed. Run each dry run from its own git
+  worktree, so the coordinator's feature edits are saved per round as diffs and never touch committed code:
+  ```sh
+  uv run --project redteam python -m redteam.dryrun init    --run DIR --snapshot SNAP [--seed N] [--knowledge white_box] [--all-known]
+  uv run --project redteam python -m redteam.dryrun holdout --run DIR [--per-family 60 --slice 20]
+  uv run --project redteam python -m redteam.dryrun round   --run DIR --round N [--max-listings 300]
+  uv run --project redteam python -m redteam.dryrun summary --run DIR   # summary.json + summary.md
+  ```
 - **Attack factory** (`redteam.generate`): an `AttackSpec` in, `SyntheticListing`s out to MongoDB. The main mode,
   `mutate_real`, copies a real listing and changes one thing in code (wallet, price, checkout id, product, seller,
   domain, hidden text), recorded in the answer key's `attack_diff`. Families that need wording (prompt injection,

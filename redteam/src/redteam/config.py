@@ -35,7 +35,8 @@ PRICES = {
     HOLDOUT_MODEL: (0.30, 1.20),
 }
 
-BATCH_SIZE = 10          # LLM slots per Bitdeer call
+BATCH_SIZE = 3           # LLM slots per Bitdeer call (the models spend ~2.3k output tokens per slot, mostly reasoning)
+TOKENS_PER_SLOT = 5000   # max_tokens = slots * TOKENS_PER_SLOT; a too-small cap truncates the JSON
 CONCURRENCY = 16
 ROUND_BUDGET = {"usd": 5.0, "tokens": 3_000_000, "minutes": 45.0}  # C8, per round
 ROUND_WALL_SECONDS = int(ROUND_BUDGET["minutes"] * 60)
