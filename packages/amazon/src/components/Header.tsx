@@ -1,0 +1,70 @@
+import Link from "next/link";
+import Logo from "./Logo";
+import { Cart, Menu, Pin, Search } from "./Icons";
+import type { Store } from "../types";
+
+const NAV = ["Today's Deals", "Prime Video", "Registry", "Gift Cards", "Customer Service", "Sell", "Best Sellers", "New Releases", "Books", "Video Games"];
+const SUBNAV = ["PS5", "Xbox Series X|S", "Switch", "PS4", "PC", "Legacy Systems", "Accessories", "Deals", "Best Sellers", "New Releases", "Trade-In"];
+
+export default function Header({ store, subnav = false }: { store: Store; subnav?: boolean }) {
+  return (
+    <header>
+      {store.banner}
+      <div className="nav-belt">
+        <Link href="/" className="nav-box nav-logo">
+          <Logo />
+        </Link>
+        <div className="nav-box nav-deliver">
+          <Pin />
+          <span className="nav-line-2">Update Location</span>
+        </div>
+        <form className="nav-search" action="/" role="search">
+          <div className="nav-search-scope">
+            All <span className="caret" />
+          </div>
+          <input type="text" name="k" placeholder="Search Amazon" aria-label="Search Amazon" />
+          <button type="submit" aria-label="Go">
+            <Search />
+          </button>
+        </form>
+        <div className="nav-box nav-lang">
+          <span className="flag" aria-hidden />
+          <span className="nav-line-2">
+            EN <span className="caret" />
+          </span>
+        </div>
+        <div className="nav-box">
+          <span className="nav-line-1 light">Hello, Sign In</span>
+          <span className="nav-line-2">
+            Account &amp; Lists <span className="caret" />
+          </span>
+        </div>
+        <div className="nav-box">
+          <span className="nav-line-1 light">Returns</span>
+          <span className="nav-line-2">&amp; Orders</span>
+        </div>
+        <div className="nav-box nav-cart" aria-label="Cart">
+          <Cart />
+        </div>
+      </div>
+      <nav className="nav-main">
+        <span className="nav-all">
+          <Menu />
+          All
+        </span>
+        {store.navHighlight && <span className="nav-highlight">{store.navHighlight}</span>}
+        {NAV.map((label) => (
+          <span key={label}>{label}</span>
+        ))}
+      </nav>
+      {subnav && (
+        <div className="subnav">
+          <b>Video Games</b>
+          {SUBNAV.map((label) => (
+            <span key={label}>{label}</span>
+          ))}
+        </div>
+      )}
+    </header>
+  );
+}

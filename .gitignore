@@ -1,9 +1,29 @@
+# Dependencies.
 node_modules/
+.pnp
+.pnp.*
+
+# Next.js and Vercel builds.
 .next/
+out/
+build/
 .vercel/
+next-env.d.ts
+*.tsbuildinfo
+
+# Python.
 .venv/
 __pycache__/
-*.tsbuildinfo
+*.pyc
+
+# Tests and logs.
+coverage/
+npm-debug.log*
+
+# Secrets.
 .env*
 !.env.example
+*.pem
+
+# System files.
 .DS_Store

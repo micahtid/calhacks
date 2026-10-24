@@ -1,0 +1,16 @@
+{
+  "name": "@calhacks/common",
+  "version": "0.1.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./document": "./src/Document.tsx",
+    "./base.css": "./src/base.css",
+    "./next-config": "./next-config.mjs",
+    "./eslint-config": "./eslint-config.mjs"
+  },
+  "peerDependencies": {
+    "next": "*",
+    "react": "*"
+  }
+}

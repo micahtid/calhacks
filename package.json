@@ -2,6 +2,7 @@
   "name": "calhacks",
   "private": true,
   "workspaces": [
+    "packages/*",
     "apps/store-a",
     "apps/store-b",
     "apps/store-c"
@@ -12,8 +13,8 @@
     "dev:store-a": "npm run dev -w store-a",
     "dev:store-b": "npm run dev -w store-b",
     "dev:store-c": "npm run dev -w store-c",
-    "build": "npm run build --workspaces",
-    "lint": "npm run lint --workspaces"
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
