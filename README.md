@@ -140,6 +140,15 @@ Secrets go in `.env` files (gitignored). Commit only `.env.example`.
 
 On this network uv may need `UV_SYSTEM_CERTS=1` (TLS interception).
 
+## Gate
+
+Two layers decide whether the wallet may pay; both must say yes. Details: `gate/README.md`.
+
+- **Layer 1** (`gate/layer1`, TypeScript, fixed rules that are never learned): checkout wallet matches `store.json`; wallet is
+  a known seller's **or** the seller is CRS-verified (CRS-only sellers capped at `unknown_seller_cap_usd`); 402 amount equals
+  the price; price within max price and spend remaining; network and asset allowlisted; checkout item and product match the
+  listing and the mandate; 402 timeout at most 120s. `node gate/layer1/src/cli.ts < gate_inputs.jsonl`.
+
 ## Prize tracks
 
 Visa, Hyphenate, Coinbase x402 (payment protocol), Apify (real listings), Factory (spec + Fix Droid), CRS, Armadin, Bitdeer (scam generation / classifier), Cal Hacks Overall.
@@ -181,7 +190,8 @@ Keep this section current (see `AGENTS.md`).
 - [ ] Scam storefront variants (lookalike domain/wallet, too cheap, prompt injection, fake reviews, unverified seller)
 - [ ] Apify listing ingestion
 - [ ] Scout (Claude) agent loop
-- [ ] Gate (option A rules or option B classifier, undecided)
+- [x] Gate Layer 1: fixed TypeScript rules over the issue #1 `GateInput`
+- [ ] Gate Layer 2: trained risk model
 - [ ] Wallet signer + x402 payment against Base Sepolia
 - [ ] Bitdeer fake-listing generation and labeled dataset
 - [ ] Scoring harness with held-out set and catch-rate reporting
