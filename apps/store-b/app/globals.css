@@ -87,23 +87,23 @@
 }
 
 .logo-e {
-  color: #e53238;
+  color: #86b817;
 }
 
 .logo-b {
-  color: #0064d2;
+  color: #e53238;
   position: relative;
   top: -1px;
 }
 
 .logo-a {
-  color: #f5af02;
+  color: #0064d2;
   position: relative;
   top: 2px;
 }
 
 .logo-y {
-  color: #86b817;
+  color: #f5af02;
   position: relative;
   top: 5px;
 }
