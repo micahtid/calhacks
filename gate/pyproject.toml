@@ -5,7 +5,7 @@ description = "Payment Gate Layer 2: features, training, evaluation and scoring"
 requires-python = ">=3.13"
 dependencies = [
     "jsonschema>=4.23",
-    "lightgbm>=4.5",
+    "lightgbm>=4.5,<4.7",  # 4.7.0 crashes (access violation in LGBM_DatasetSetField) on Windows
     "numpy>=2.1",
     "pydantic>=2.9",
     "pyyaml>=6.0",
