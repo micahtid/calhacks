@@ -87,7 +87,7 @@ export default function ItemPage({ store, id }: { store: Store; id: string }) {
               <Price amount={item.price} size="lg" />
             </div>
             {item.listPrice && (
-              <div className="muted small">
+              <div className="muted small list-price">
                 List Price: <s>{formatUsd(item.listPrice)}</s>
               </div>
             )}
@@ -172,7 +172,7 @@ export default function ItemPage({ store, id }: { store: Store; id: string }) {
               <Stars rating={item.rating} size={20} />
               <span>{item.rating.toFixed(1)} out of 5</span>
             </div>
-            <p className="muted">{item.ratingCount.toLocaleString("en-US")} global ratings</p>
+            <p className="muted global-ratings">{item.ratingCount.toLocaleString("en-US")} global ratings</p>
             <table className="histogram">
               <tbody>
                 {item.breakdown.map((percent, index) => (
@@ -190,7 +190,7 @@ export default function ItemPage({ store, id }: { store: Store; id: string }) {
             </table>
             <hr />
             <h3>Review This Product</h3>
-            <p>Share Your Thoughts with Other Customers</p>
+            <p className="review-prompt">Share your thoughts with other customers</p>
             <button type="button" className="btn-list">
               Write a Customer Review
             </button>
@@ -207,7 +207,7 @@ export default function ItemPage({ store, id }: { store: Store; id: string }) {
                   <Stars rating={review.rating} />
                   <b>{review.title}</b>
                 </div>
-                <p className="muted small">Reviewed in the United States on {review.date}</p>
+                <p className="muted small review-meta">Reviewed in the United States on {review.date}</p>
                 <p className="small">
                   Platform: {item.platform} <span className="divider">|</span> <span className="verified">Verified Purchase</span>
                 </p>

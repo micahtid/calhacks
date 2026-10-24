@@ -764,22 +764,19 @@
   line-height: 22px;
 }
 
+/* The quantity box is 44px tall, so its label drops to the box's center line. */
+.vi-label-center {
+  line-height: 44px;
+}
+
 .vi-label {
   color: var(--ink);
 }
 
 .info {
-  display: inline-grid;
-  place-items: center;
-  width: 15px;
-  height: 15px;
-  border: 1.5px solid var(--ink);
-  border-radius: 50%;
-  font-size: 10px;
-  font-weight: 700;
-  font-style: normal;
+  display: inline-block;
   margin-left: 8px;
-  vertical-align: 1px;
+  vertical-align: -2px;
 }
 
 .qty-line {

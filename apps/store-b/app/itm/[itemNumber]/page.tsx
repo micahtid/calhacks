@@ -5,7 +5,7 @@ import { Chevron, Heart, formatUsd, percentOff } from "@calhacks/common";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ItemCard from "@/components/ItemCard";
-import { Expand } from "@/components/Icons";
+import { Expand, Info } from "@/components/Icons";
 import { DELIVERY, FEEDBACK, ITEMS, SELLER, getItem, itemPath } from "@/lib/catalog";
 
 // Every item page is built ahead of time from the catalog, so this route can wait on its params.
@@ -136,15 +136,13 @@ export default async function ItemPage({ params }: PageProps<"/itm/[itemNumber]"
                 <span className="vi-label">Condition:</span>
                 <span>
                   <b>{item.condition}</b>
-                  <span className="info" aria-hidden>
-                    i
-                  </span>
+                  <Info />
                   <br />
                   <i>“{item.sellerNotes}”</i>
                 </span>
               </div>
               <div className="vi-row">
-                <span className="vi-label">Quantity:</span>
+                <span className="vi-label vi-label-center">Quantity:</span>
                 <span className="qty-line">
                   <span className="qty-box">1</span>
                   <span className="muted">
@@ -283,9 +281,8 @@ export default async function ItemPage({ params }: PageProps<"/itm/[itemNumber]"
               </span>
               <div>
                 <b className="seller-name">{SELLER.name}</b>
-                <p>
-                  {SELLER.positive} positive feedback · {SELLER.itemsSold} items sold
-                </p>
+                <p>{SELLER.positive} positive feedback</p>
+                <p>{SELLER.itemsSold} items sold</p>
               </div>
             </div>
             <p className="seller-fact">Joined {SELLER.joined}</p>
@@ -330,6 +327,7 @@ export default async function ItemPage({ params }: PageProps<"/itm/[itemNumber]"
                   </span>
                   <span className="dot">·</span>
                   <span className="muted">{entry.date}</span>
+                  <span className="dot">·</span>
                   <span className="muted">Verified Purchase</span>
                 </div>
                 <p>{entry.body}</p>

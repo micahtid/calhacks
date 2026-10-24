@@ -510,7 +510,7 @@ a:hover .link,
 .rating-line {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .price {
@@ -842,6 +842,22 @@ a:hover .link,
   gap: 8px;
 }
 
+.global-ratings {
+  margin-top: 6px;
+}
+
+.review-prompt {
+  margin: 6px 0 16px;
+}
+
+.list-price {
+  margin-top: 6px;
+}
+
+.review-meta {
+  margin-bottom: 4px;
+}
+
 .histogram {
   width: 100%;
   margin: 14px 0;
@@ -887,13 +903,14 @@ a:hover .link,
 .review-author {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   font-size: 13px;
-  margin-bottom: 6px;
+  margin-bottom: 12px;
 }
 
 .review .rating-line {
-  margin-bottom: 4px;
+  gap: 12px;
+  margin-bottom: 8px;
 }
 
 .verified {

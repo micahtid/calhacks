@@ -34,6 +34,16 @@ export function Cart() {
   );
 }
 
+export function Info() {
+  return (
+    <svg className="info" width="16" height="16" viewBox="0 0 16 16" aria-hidden>
+      <circle cx="8" cy="8" r="7" fill="none" stroke="currentColor" strokeWidth="1.4" />
+      <path d="M8 7v4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <circle cx="8" cy="4.6" r="1" fill="currentColor" />
+    </svg>
+  );
+}
+
 export function Expand() {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden>
