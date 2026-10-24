@@ -1,0 +1,9 @@
+{
+  "networks": ["eip155:84532"],
+  "assets": {
+    "eip155:84532": "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+  },
+  "schemes": ["exact"],
+  "max_timeout_s": 120,
+  "usdc_decimals": 6
+}

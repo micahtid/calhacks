@@ -1,0 +1,10 @@
+{
+  "sellers": [
+    {
+      "sellerId": "seller_pixelcart_001",
+      "name": "Pixel Cart Retro",
+      "payTo": "0x45fE928DaA6A16362cd51DD25660Bf540c16c862",
+      "domain": "calhacks.micahtid.com"
+    }
+  ]
+}
