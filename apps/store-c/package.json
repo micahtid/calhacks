@@ -9,6 +9,7 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@calhacks/common": "*",
     "next": "16.4.3",
     "react": "19.3.0",
     "react-dom": "19.3.0"

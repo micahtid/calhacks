@@ -1,69 +1,99 @@
-import Image from "next/image";
-import styles from "./page.module.css";
+import Link from "next/link";
+import { picker, priceTiers, topGroups } from "@calhacks/common";
+import Header from "@/components/Header";
+import Footer from "@/components/Footer";
+import ProductCard from "@/components/ProductCard";
+import { Hanger, Shield, Sparkle } from "@/components/Icons";
+import { itemPath, itemsOf, type Item } from "@/lib/catalog";
 
-export default function Home() {
+const BRANDS = 6;
+const POPULAR = 20;
+
+// Every highlight comes from what is listed right now: the biggest brands, the price points that split the catalog, and the live counts.
+export default async function Home() {
+  const items = await itemsOf();
+  // Each item shows in at most one highlight, so the hero and the brand circles never repeat a photo.
+  const pick = picker<Item>((item) => item.id);
+  const hero = pick(items, 3);
+  const brands = topGroups(items, (item) => item.brand, BRANDS).flatMap((group) => pick(group.items, 1).map((item) => ({ label: group.label, item })));
+  const prices = priceTiers(items.map((item) => item.price));
+  const stats = [
+    { icon: <Hanger />, title: items.length.toLocaleString("en-US"), text: "Items for Sale" },
+    { icon: <Sparkle />, title: new Set(items.map((item) => item.brand)).size.toLocaleString("en-US"), text: "Brands to Shop" },
+    { icon: <Shield />, title: "Buy Safely", text: "Depop Protection", link: true },
+  ];
+
   return (
-    <div className={styles.page}>
-      <main className={styles.main}>
-        <Image
-          className={styles.logo}
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className={styles.intro}>
-          <h1>
-            To get started, edit the{" "}
-            <code className={styles.code}>page.tsx</code> file.
-          </h1>
-          <p>
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className={styles.ctas}>
-          <a
-            className={styles.primary}
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className={styles.logo}
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={14}
-            />
-            Deploy Now
-          </a>
-          <a
-            className={styles.secondary}
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+    <>
+      <Header />
+      <main>
+        <section className="hero">
+          <div className="hero-inner">
+            <div className="hero-copy">
+              <div className="toggle">
+                <span className="on">Buy</span>
+                <span>Sell</span>
+              </div>
+              <h1>Buy Preloved. Wear It Your Way</h1>
+              <p>Together, we&apos;re keeping great clothes in circulation.</p>
+              <Link href={itemPath(items[0])} className="hero-cta">
+                Shop Now
+              </Link>
+              <div className="stats">
+                {stats.map((stat) => (
+                  <div key={stat.text} className="stat">
+                    {stat.icon}
+                    <b>{stat.title}</b>
+                    <span className={stat.link ? "underline" : undefined}>{stat.text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="hero-art">
+              {hero.map((item) => (
+                <img key={item.id} src={item.image} alt="" />
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <div className="page">
+          <section className="section">
+            <h2>Shop by Brand</h2>
+            <div className="circles">
+              {brands.map(({ label, item }) => (
+                <Link key={label} href={itemPath(item)} className="circle">
+                  <div className="circle-img">
+                    <img src={item.image} alt="" />
+                  </div>
+                  <span>{label}</span>
+                </Link>
+              ))}
+            </div>
+          </section>
+
+          <section className="section">
+            <h2>Popular This Week</h2>
+            <div className="grid">
+              {items.slice(0, POPULAR).map((item) => (
+                <ProductCard key={item.id} item={item} />
+              ))}
+            </div>
+          </section>
+
+          <section className="section">
+            <h2>Shop by Price</h2>
+            <div className="prices">
+              {prices.map((price) => (
+                <span key={price} className="price-tile">
+                  Under <b>${price}</b>
+                </span>
+              ))}
+            </div>
+          </section>
         </div>
       </main>
-    </div>
+      <Footer />
+    </>
   );
 }
