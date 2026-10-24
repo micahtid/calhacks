@@ -148,6 +148,13 @@ Two layers decide whether the wallet may pay; both must say yes. Details: `gate/
   a known seller's **or** the seller is CRS-verified (CRS-only sellers capped at `unknown_seller_cap_usd`); 402 amount equals
   the price; price within max price and spend remaining; network and asset allowlisted; checkout item and product match the
   listing and the mandate; 402 timeout at most 120s. `node gate/layer1/src/cli.ts < gate_inputs.jsonl`.
+- **Layer 2** (`gate/gatepy` + `gate/features`, Python): a LightGBM risk score that runs only when Layer 1 passes and can
+  only turn a buy into a skip. Features from issue #1: price vs median, CRS verification and age, known wallet and wallet age,
+  domain and wallet lookalikes, injection and hidden-text scores, review similarity. Each decision carries its top 3 reasons.
+- **Data:** training and evaluation read listings, mandates and references from MongoDB (`MONGODB_DB_REDTEAM`); answer keys
+  are used only for scoring. `uv run --project gate gate-train --round N`, `uv run --project gate gate-eval --model promoted`.
+- **Purchase time:** `gatepy.serve` scores a `GateRequest` (`POST /gate/risk`), fetching the listing and references itself
+  and failing closed.
 
 ## Prize tracks
 
@@ -191,7 +198,7 @@ Keep this section current (see `AGENTS.md`).
 - [ ] Apify listing ingestion
 - [ ] Scout (Claude) agent loop
 - [x] Gate Layer 1: fixed TypeScript rules over the issue #1 `GateInput`
-- [ ] Gate Layer 2: trained risk model
+- [x] Gate Layer 2: LightGBM risk model trained and evaluated on MongoDB data, `POST /gate/risk`
 - [ ] Wallet signer + x402 payment against Base Sepolia
 - [ ] Bitdeer fake-listing generation and labeled dataset
 - [ ] Scoring harness with held-out set and catch-rate reporting
