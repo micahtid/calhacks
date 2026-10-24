@@ -48,7 +48,7 @@ async def probe(prompt: str):
     from redteam.coordinator import build_session
     perm_log, tools = [], []
     async with build_session(1, model=os.environ.get("REDTEAM_COORD_MODEL", "custom:DeepSeek-V4.1-Flash-(Bitdeer)-0"),
-                             offline_gen=True, max_listings=0, allow_edits=False, perm_log=perm_log) as s:
+                             max_listings=0, allow_edits=False, perm_log=perm_log) as s:
         async with s.stream(prompt, timeout=600) as st:
             async for ev in st:
                 if type(ev).__name__ == "ToolCall":

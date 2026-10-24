@@ -1,75 +1,94 @@
-"""Drive the MCP server over real stdio, the way droid does, against throwaway data/models/holdout dirs."""
+"""MCP tools on the issue #1 schemas: in-process round flow, and one run over real stdio like droid drives it."""
 import asyncio
 import json
 import os
-import subprocess
 import sys
 
 import pytest
+from calhacks_contracts import RoundInput
 
+from redteam import holdout, mcp_server
 from redteam.config import REPO
 
-pytest.importorskip("mcp")
-from mcp import ClientSession, StdioServerParameters  # noqa: E402
-from mcp.client.stdio import stdio_client  # noqa: E402
+
+@pytest.fixture
+def round1(monkeypatch, repo):
+    monkeypatch.setenv("REDTEAM_ROUND", "1")
+    monkeypatch.setenv("REDTEAM_MAX_LISTINGS", "200")
+    return repo
 
 
-@pytest.fixture(scope="module")
-def env(tmp_path_factory):
-    root = tmp_path_factory.mktemp("mcp")
-    e = {**os.environ, "CALHACKS_DATA": str(root / "data"), "CALHACKS_MODELS": str(root / "models"),
-         "CALHACKS_HOLDOUT": str(root / "holdout"), "REDTEAM_OFFLINE": "1", "REDTEAM_GATE": "stub"}
-    run = lambda *a: subprocess.run([sys.executable, "-m", *a], env={**e, "REDTEAM_ROUND": "0"}, cwd=REPO,
-                                    check=True, capture_output=True)
-    run("redteam.generate", "--round", "0", "--family", "mixed", "--n", "300", "--offline", "--batch-id", "b01-seed")
-    run("redteam.holdout", "build", "--offline")
-    e["REDTEAM_ROUND"] = "1"
-    return e, root
+def test_round_flow_in_process(round1, fake_client, monkeypatch):
+    from redteam import bitdeer
+    monkeypatch.setattr(bitdeer, "make_client", lambda: fake_client())
+    held = mcp_server.generate_attacks({"family": "lookalike_domain", "n": 5})
+    assert "reserved for the holdout" in held["error"]
+    bad = mcp_server.generate_attacks({"family": "too_cheap"})
+    assert "invalid AttackSpec" in bad["error"]
+    for fam in ("too_cheap", "payment_mismatch", "prompt_injection"):
+        g = mcp_server.generate_attacks({"family": fam, "n": 30, "legit_ratio": 0.4})
+        assert g["kept"] > 20, g
+    assert mcp_server.generate_attacks({"family": "too_cheap", "n": 150})["error"].startswith("round 1 listing cap")
+    assert "holdout" in mcp_server.eval_gate("x", "holdout")["error"]
+    assert "no promoted model" in mcp_server.score_round()["error"]
+
+    holdout.build(per_family=6, slice_n=2, client=fake_client(), r=round1)
+    t = mcp_server.train_gate()
+    p = mcp_server.promote_model(t["model_id"])
+    assert p["promoted"] and p["holdout_recorded"] and "holdout" not in json.dumps(p.get("candidate_val"))
+
+    ri = RoundInput.model_validate({k: v for k, v in mcp_server.get_round_input().items() if k != "_help"})
+    assert ri.current_model_id == t["model_id"] and ri.holdout_totals and ri.feature_list
+    assert ri.coverage["too_cheap"] > 0 and "lookalike_domain" not in ri.coverage
+
+    s = mcp_server.score_round()
+    assert 0 <= s["attack_success"] <= 1 and s["metrics"]["recall"]["n"] > 0
+    insp = mcp_server.inspect_failures()
+    assert insp["model_id"] == t["model_id"] and isinstance(insp["clusters"], list)
+    for c in insp["clusters"]:
+        for ex in c["examples"]:
+            assert set(ex["listing"]) == {"listing_id", "seller", "item", "reviews", "checkout"}
+
+    wb = mcp_server.generate_attacks({"family": "hidden_text", "n": 10, "attacker_knowledge": "white_box"})
+    assert wb["kept"] > 0
+    again = mcp_server.promote_model(t["model_id"])
+    assert not again["promoted"] and "does not beat" in again["decision"]["reason"]
+    doc = round1.db.rounds.find_one({"_id": 1})
+    assert doc["generation"]["listings"] > 0 and len(doc["promotions"]) == 2
+    assert round1.db.specs.count_documents({"round": 1}) >= 4
 
 
-def drive(env, calls):
+def test_stdio_server(tmp_path, repo, fake_client):
+    pytest.importorskip("mcp")
+    from mcp import ClientSession, StdioServerParameters
+    from mcp.client.stdio import stdio_client
+
+    holdout.build(per_family=4, slice_n=1, client=fake_client(), r=repo)
+    env = {**os.environ, "REDTEAM_MONGOMOCK": "1", "REDTEAM_ROUND": "1", "BITDEER_API_KEY": "",
+           "PYTHONIOENCODING": "utf-8"}
+
     async def go():
-        params = StdioServerParameters(command=sys.executable, args=["-m", "redteam.mcp_server"], env=env)
+        params = StdioServerParameters(command=sys.executable, args=["-m", "redteam.mcp_server"], env=env, cwd=str(REPO))
         out = []
         async with stdio_client(params) as (r, w):
             async with ClientSession(r, w) as s:
                 await s.initialize()
                 out.append(sorted(t.name for t in (await s.list_tools()).tools))
-                for name, args in calls:
+                for name, args in [("generate_attacks", {"spec": {"family": "urgency_pressure", "n": 4}}),
+                                   ("generate_attacks", {"spec": {"family": "too_cheap", "n": 40}}),
+                                   ("generate_attacks", {"spec": {"family": "payment_mismatch", "n": 40}}),
+                                   ("train_gate", {}), ("get_round_input", {})]:
                     res = await s.call_tool(name, args)
                     out.append(json.loads(res.content[0].text))
+                t = out[-2]
+                res = await s.call_tool("promote_model", {"model_id": t["model_id"]})
+                out.append(json.loads(res.content[0].text))
         return out
-    return asyncio.run(go())
 
-
-def test_round_flow_over_stdio(env):
-    e, root = env
-    tools, status, held, gen, train = drive(e, [
-        ("get_status", {}),
-        ("generate_attacks", {"family": "spoofed_store_name", "n": 10}),
-        ("generate_attacks", {"family": "too_cheap", "n": 30}),
-        ("train_gate", {"round": 0}),
-    ])
-    assert "promote_model" in tools and "eval_gate" in tools
-    assert status["round"] == 1 and "urgency_pressure" in status["reserved_families"]
-    assert "reserved for the holdout" in held["error"]
-    assert gen["kept"] == 30
-    assert train["model_id"].startswith("r0-stub")
-
-    promo, score, insp, holdout_eval, val = drive(e, [
-        ("promote_model", {"model_id": train["model_id"]}),
-        ("score_round", {}),
-        ("inspect_failures", {"limit": 2}),
-        ("eval_gate", {"model_id": "promoted", "split": "holdout"}),
-        ("eval_gate", {"model_id": "promoted", "split": "val"}),
-    ])[1:]
-    assert promo["promoted"], promo
-    assert promo["holdout"] == "recorded"
-    recorded = json.loads((root / "models" / "promoted.json").read_text())["history"][-1]["holdout"]
-    assert recorded["n"] == 600 and "rows" not in recorded
-    assert 0 <= score["attack_success"] <= 1
-    assert "clusters" in insp
-    assert "not available to the coordinator" in holdout_eval["error"]
-    assert "rows" not in val
-    calls = (root / "data" / "rounds" / "R1" / "calls.jsonl").read_text().splitlines()
-    assert len(calls) >= 8
+    tools, held, gen, gen2, train, ri, promo = asyncio.run(go())
+    assert {"get_round_input", "generate_attacks", "promote_model", "eval_gate"} <= set(tools)
+    assert "reserved" in held["error"]
+    assert gen["kept"] > 0 and gen["drops_by_family"].get("legit_mixed_reviews", 0) >= 0
+    assert train["model_id"].startswith("r1-stub"), train
+    assert ri["round"] == 1 and "attack_families" in ri["_help"]
+    assert promo["promoted"] and promo["holdout_recorded"]

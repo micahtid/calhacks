@@ -1,10 +1,21 @@
 import json
+import os
 import re
+import shutil
+import tempfile
+from pathlib import Path
 from types import SimpleNamespace
 
-import pytest
+# Point models, logs and the holdout at throwaway dirs before redteam.config is imported.
+_TMP = Path(tempfile.mkdtemp(prefix="redteam-tests-"))
+os.environ["CALHACKS_MODELS"] = str(_TMP / "models")
+os.environ["CALHACKS_DATA"] = str(_TMP / "data")
+os.environ["CALHACKS_HOLDOUT"] = str(_TMP / "holdout")
+os.environ["REDTEAM_GATE"] = "stub"
 
-from redteam import store
+import pytest  # noqa: E402
+
+from redteam import store  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -15,6 +26,13 @@ def no_real_bitdeer(monkeypatch):
     def refuse():
         raise RuntimeError("tests must pass a fake Bitdeer client")
     monkeypatch.setattr(bitdeer, "make_client", refuse)
+
+
+@pytest.fixture(autouse=True)
+def clean_dirs():
+    for k in ("CALHACKS_MODELS", "CALHACKS_DATA", "CALHACKS_HOLDOUT"):
+        shutil.rmtree(os.environ[k], ignore_errors=True)
+    yield
 
 
 @pytest.fixture
