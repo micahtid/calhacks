@@ -484,7 +484,7 @@
    "answer_key": {
     "listing_id": "S-0009",
     "label": "legit",
-    "family": "legit_new_verified_seller",
+    "family": "legit_new_seller",
     "base_listing_id": "R-0002",
     "attack_diff": {
      "seller.id": "seller_maple_02 → seller_fresh_09"

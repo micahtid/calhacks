@@ -1,4 +1,4 @@
-"""The one "today" features may use for ages (CRS verification, wallet first seen).
+"""The one "today" features may use for ages (wallet first seen).
 
 Fixed per process: `GATE_AS_OF` (YYYY-MM-DD) if set, otherwise the date the process started. Model files record it.
 """

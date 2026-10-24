@@ -13,7 +13,6 @@ Collections (the Gate only ever reads `listings`, `cases` and the reference coll
 | gen | synthetic listing | `GenInfo`: model, temperature, prompt version, spec id |
 | cases | listing | `Case`: the mandate the listing is evaluated under |
 | known_sellers | seller | `KnownSeller` |
-| crs_results | seller | `CrsResult` (stand-in until the CRS API exists) |
 | market_medians | product_key + condition | {product_key, condition, median, n, source, built_at} |
 | wallets | pay_to | {pay_to, first_seen} |
 | specs | attack spec | `AttackSpec` + round + status |
@@ -30,7 +29,7 @@ from dotenv import load_dotenv
 from pymongo import MongoClient, ReplaceOne
 from pymongo.database import Database
 
-from calhacks_contracts.gate import Case, CrsResult, KnownSeller, References
+from calhacks_contracts.gate import Case, KnownSeller, References
 from calhacks_contracts.listing import Listing, ListingMeta
 from calhacks_contracts.synthetic import AnswerKey, GenInfo, SyntheticListing
 
@@ -145,9 +144,6 @@ class Repo:
     def put_known_seller(self, s: KnownSeller) -> None:
         self.db.known_sellers.replace_one({"_id": s.seller_id}, _doc(s, "seller_id"), upsert=True)
 
-    def put_crs(self, r: CrsResult) -> None:
-        self.db.crs_results.replace_one({"_id": r.seller_id}, _doc(r, "seller_id"), upsert=True)
-
     def put_median(self, product_key: str, condition: str, median: float, n: int, source: str, built_at: str) -> None:
         self.db.market_medians.replace_one(
             {"product_key": product_key, "condition": condition},
@@ -165,7 +161,6 @@ class Repo:
         """Load every reference collection once, so decisions make no further database calls (G2)."""
         return ReferenceSet(
             known_sellers=self.known_sellers(),
-            crs={d["_id"]: CrsResult.model_validate(_strip(d)) for d in self.db.crs_results.find()},
             medians={(d["product_key"], d["condition"]): d["median"] for d in self.db.market_medians.find()},
             wallets={d["_id"]: d.get("first_seen") for d in self.db.wallets.find()},
         )
@@ -177,13 +172,13 @@ class Repo:
 class ReferenceSet:
     """In-memory copy of the reference collections. `for_listing` builds the Gate's `References`."""
 
-    def __init__(self, known_sellers: list[KnownSeller], crs: dict[str, CrsResult],
-                 medians: dict[tuple[str, str], float], wallets: dict[str, str | None]):
-        self.known_sellers, self.crs, self.medians, self.wallets = known_sellers, crs, medians, wallets
+    def __init__(self, known_sellers: list[KnownSeller], medians: dict[tuple[str, str], float],
+                 wallets: dict[str, str | None]):
+        self.known_sellers, self.medians, self.wallets = known_sellers, medians, wallets
 
-    def overlay(self, crs: Iterable[CrsResult] = (), wallets: dict[str, str] | None = None) -> "ReferenceSet":
-        """A copy with extra simulated references (e.g. for holdout sellers that never enter the database)."""
-        return ReferenceSet(self.known_sellers, {**self.crs, **{r.seller_id: r for r in crs}}, self.medians,
+    def overlay(self, wallets: dict[str, str] | None = None) -> "ReferenceSet":
+        """A copy with extra simulated wallet first-seen dates (e.g. for holdout sellers that never enter the database)."""
+        return ReferenceSet(self.known_sellers, self.medians,
                             {**self.wallets, **{k.lower(): v for k, v in (wallets or {}).items()}})
 
     def median(self, product_key: str, condition: str) -> float | None:
@@ -195,7 +190,6 @@ class ReferenceSet:
     def for_listing(self, listing: Listing) -> References:
         return References(
             known_sellers=self.known_sellers,
-            crs_result=self.crs.get(listing.seller.id),
             market_median=self.median(listing.item.product_key, listing.item.condition),
             pay_to_first_seen=self.wallets.get(listing.checkout.pay_to.lower()),
         )

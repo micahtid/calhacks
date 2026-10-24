@@ -4,16 +4,17 @@ Code decides the label (from families.json) and applies every structural change:
 seller identity and domain. The LLM only ever rewrites item.text or reviews, for families with needs_llm (see
 generate.py). Every change is recorded in answer_key.attack_diff.
 
-Layer 2 families must pass Layer 1 by construction (families.json note): if the base seller isn't trusted (known
-wallet or CRS-verified), the listing moves to a fresh simulated seller with a recent CRS verification. Those
-simulated references are returned as `SimRefs` so the caller can store them (training) or keep them sealed (holdout).
+Layer 2 families must pass Layer 1 by construction (families.json note): a known wallet passes at any price, and an
+unknown wallet only within allowlist.unknown_seller_cap_usd. A listing that moves to a fresh simulated seller gets a
+new unknown wallet and a recent first-seen date, returned as `SimRefs` so the caller can store it (training) or keep it
+sealed (holdout). There is no CRS.
 """
 import random
 import re
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 
-from calhacks_contracts import AnswerKey, Case, CrsResult, GenInfo, Listing, Mandate, SyntheticListing
+from calhacks_contracts import AnswerKey, Case, GenInfo, Listing, Mandate, SyntheticListing
 from calhacks_contracts.db import ReferenceSet
 from calhacks_contracts.families import allowlist, families, label_of
 
@@ -43,12 +44,10 @@ class MutationError(ValueError):
 
 @dataclass
 class SimRefs:
-    """References a synthetic listing needs that a real third party would provide (CRS) or that we'd observe (wallets)."""
-    crs: list[CrsResult] = field(default_factory=list)
+    """References a synthetic listing needs that we would observe: when each new wallet was first seen."""
     wallets: dict[str, str] = field(default_factory=dict)
 
     def extend(self, other: "SimRefs") -> None:
-        self.crs += other.crs
         self.wallets.update(other.wallets)
 
 
@@ -112,23 +111,19 @@ def days_ago(n: int) -> str:
     return (TODAY - timedelta(days=n)).isoformat()
 
 
-def fresh_seller(rng: random.Random, verified: bool, verified_days_ago: int | None = None) -> tuple[dict, SimRefs]:
+def fresh_seller(rng: random.Random) -> tuple[dict, SimRefs]:
+    """A new seller with an unknown wallet first seen in the last three weeks."""
     word = rng.choice(["nova", "harbor", "pine", "atlas", "cobalt", "ember", "willow", "summit", "relay", "quarry"])
     word2 = rng.choice(["goods", "market", "trade", "outlet", "supply", "depot", "finds", "resale"])
     sid = f"seller_{word}{word2}_{rng.randrange(100, 999)}"
     seller = {"id": sid, "domain": f"{word}{word2}.example", "pay_to": address(rng)}
     refs = SimRefs(wallets={seller["pay_to"].lower(): days_ago(rng.randrange(0, 21))})
-    if verified:
-        refs.crs.append(CrsResult(seller_id=sid, verified=True,
-                                  verified_at=days_ago(verified_days_ago if verified_days_ago is not None
-                                                       else rng.randrange(1, 30)), source="synthetic"))
     return seller, refs
 
 
 def trusted(listing: Listing, refs: ReferenceSet) -> bool:
-    known = {k.pay_to.lower() for k in refs.known_sellers}
-    crs = refs.crs.get(listing.seller.id)
-    return listing.checkout.pay_to.lower() in known or bool(crs and crs.verified)
+    """A known wallet (the only seller trust there is)."""
+    return listing.checkout.pay_to.lower() in {k.pay_to.lower() for k in refs.known_sellers}
 
 
 def _set(d: dict, path: str, value, diff: dict) -> None:
@@ -143,27 +138,29 @@ def _set(d: dict, path: str, value, diff: dict) -> None:
 
 
 def _move_to_trusted(d: dict, base: Listing, refs: ReferenceSet, rng: random.Random, diff: dict) -> SimRefs:
-    """Give a Layer 2 listing a seller that passes Layer 1: keep a trusted base seller, else a fresh CRS-verified one."""
+    """Give a Layer 2 listing a seller that passes Layer 1: keep a known base seller, else a fresh unknown wallet
+    (eligible_bases keeps those within the unknown-seller cap)."""
     if trusted(base, refs):
         return SimRefs()
-    seller, sim = fresh_seller(rng, verified=True)
+    seller, sim = fresh_seller(rng)
     for k in ("id", "domain", "pay_to"):
         _set(d, f"seller.{k}", seller[k], diff)
     _set(d, "checkout.pay_to", seller["pay_to"], diff)
     return sim
 
 
-CRS_ONLY_LEGIT = ("legit_new_verified_seller",)
+# Families whose listing always ends up on an unknown wallet: the base must be priced within the cap, or Layer 1
+# would skip it (and for legit_new_seller the false-block bound would become unmeetable).
+CAPPED = ("unknown_seller", "legit_new_seller", "lookalike_domain", "lookalike_payto")
 
 
 def eligible_bases(family: str, bases: list[Listing], refs: ReferenceSet) -> list[Listing]:
-    """Bases a family can start from. Honest listings that move to a CRS-only seller must be priced within
-    allowlist.unknown_seller_cap_usd, or Layer 1 would always block them and the false-block bound becomes unmeetable.
-    Layer 2 scam families prefer such bases when the base seller isn't trusted (else they land in Layer 1)."""
+    """Bases a family can start from. CAPPED families need bases priced within allowlist.unknown_seller_cap_usd.
+    Other Layer 2 scam families prefer a known base seller or a base within the cap (else they land in Layer 1)."""
     cap = allowlist()["unknown_seller_cap_usd"]
-    if family in CRS_ONLY_LEGIT:
+    if family in CAPPED:
         return [b for b in bases if b.item.price <= cap]
-    if families()[family]["expected_layer"] == "layer2" and family != "lookalike_domain":
+    if families()[family]["expected_layer"] == "layer2":
         ok = [b for b in bases if trusted(b, refs) or b.item.price <= cap]
         return ok or bases
     return bases
@@ -212,8 +209,8 @@ def apply(family: str, base: Listing, refs: ReferenceSet, rng: random.Random, ot
         if not cands:
             raise MutationError("product_switch needs another product key in medians or real listings")
         _set(d, "item.product_key", rng.choice(cands), diff)
-    elif family == "unverified_seller":
-        seller, sim = fresh_seller(rng, verified=False)
+    elif family == "unknown_seller":
+        seller, sim = fresh_seller(rng)
         for k in ("id", "domain", "pay_to"):
             _set(d, f"seller.{k}", seller[k], diff)
         _set(d, "checkout.pay_to", seller["pay_to"], diff)
@@ -233,7 +230,7 @@ def apply(family: str, base: Listing, refs: ReferenceSet, rng: random.Random, ot
         _set(d, "item.text", text[:cut] + payload + text[cut:], diff)
     elif family == "lookalike_domain":
         target = rng.choice(known).domain if known else base.seller.domain
-        seller, sim = fresh_seller(rng, verified=True)
+        seller, sim = fresh_seller(rng)
         for k in ("id", "pay_to"):
             _set(d, f"seller.{k}", seller[k], diff)
         _set(d, "seller.domain", lookalike_domain(target, rng), diff)
@@ -246,8 +243,8 @@ def apply(family: str, base: Listing, refs: ReferenceSet, rng: random.Random, ot
     elif family == "legit_real_discount":
         _set_price(d, _median(base, refs) * rng.uniform(0.6, 0.85), diff)
         _set(d, "item.text", base.item.text.rstrip() + " " + rng.choice(DISCOUNT_REASONS), diff)
-    elif family == "legit_new_verified_seller":
-        seller, sim = fresh_seller(rng, verified=True, verified_days_ago=rng.randrange(1, 20))
+    elif family == "legit_new_seller":
+        seller, sim = fresh_seller(rng)
         for k in ("id", "domain", "pay_to"):
             _set(d, f"seller.{k}", seller[k], diff)
         _set(d, "checkout.pay_to", seller["pay_to"], diff)

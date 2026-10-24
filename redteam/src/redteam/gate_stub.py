@@ -22,9 +22,9 @@ from redteam import scoring, store
 from redteam.config import MAX_FPR, MODELS_DIR
 
 TODAY = date(2026, 10, 24)
-FEATURES = ["price_ratio", "known_wallet", "crs_age_days", "wallet_age_days", "injection_hits", "hidden_chars",
-            "review_dup_max", "domain_sim"]
-MONOTONE = [-1, -1, -1, -1, 1, 1, 1, 1]
+FEATURES = ["price_ratio", "known_wallet", "wallet_age_days", "injection_hits", "hidden_chars", "review_dup_max",
+            "domain_sim"]
+MONOTONE = [-1, -1, -1, 1, 1, 1, 1]
 
 
 # ---------- Layer 1 ----------
@@ -32,11 +32,9 @@ def layer1(x: GateInput) -> list[Check]:
     a, l, m, refs = allowlist(), x.listing, x.mandate, x.references
     known = {k.pay_to.lower() for k in refs.known_sellers}
     is_known = l.checkout.pay_to.lower() in known
-    crs_ok = bool(refs.crs_result and refs.crs_result.verified)
     t = l.checkout.max_timeout_seconds
     rows = [
         ("L1_PAYTO_MISMATCH", l.checkout.pay_to.lower() == l.seller.pay_to.lower()),
-        ("L1_SELLER_UNTRUSTED", is_known or crs_ok),
         ("L1_UNKNOWN_SELLER_CAP", is_known or l.item.price <= a["unknown_seller_cap_usd"]),
         ("L1_AMOUNT_MISMATCH", int(l.checkout.amount) == round(l.item.price * 10 ** a["usdc_decimals"])),
         ("L1_OVER_MAX", l.item.price <= m.max_price),
@@ -76,12 +74,9 @@ def featurize(x: GateInput) -> list[float]:
     known = {k.pay_to.lower() for k in refs.known_sellers}
     domains = [k.domain for k in refs.known_sellers if k.domain != l.seller.domain]
     dsim = max((difflib.SequenceMatcher(None, l.seller.domain, d).ratio() for d in domains), default=0.0)
-    crs_age = 3650.0 if l.checkout.pay_to.lower() in known else (
-        _days(refs.crs_result.verified_at, 0.0) if refs.crs_result and refs.crs_result.verified else 0.0)
     return [
         l.item.price / refs.market_median if refs.market_median else 1.0,
         float(l.checkout.pay_to.lower() in known),
-        min(crs_age, 3650.0),
         min(_days(refs.pay_to_first_seen, 0.0), 3650.0),
         float(sum(bool(p.search(norm)) for p in pats)),
         float(sum(text.count(c) for c in zw) + mixed),

@@ -196,8 +196,6 @@ def run_spec(spec: dict | AttackSpec, *, round_: int, r: Repo | None = None, cli
     }
     if write:
         r.put_synthetic(kept)
-        for c in sim.crs:
-            r.put_crs(c)
         for w, seen in sim.wallets.items():
             r.touch_wallet(w, seen)
         store.record_spec(r, s.model_dump(mode="json"), round_, summary)

@@ -20,12 +20,12 @@ Both `gate` and `redteam` depend on it by path: `calhacks-contracts = { path = "
 Collections and their documents are listed in `calhacks_contracts/db.py`. In short:
 
 - **What the Gate may read:** `listings` (one shape for real and synthetic), `cases` (mandate per listing), and the reference
-  collections `known_sellers`, `crs_results`, `market_medians`, `wallets`.
+  collections `known_sellers`, `market_medians`, `wallets`.
 - **What only the scorer reads:** `answer_keys`, `gen`, `listing_meta`. The Gate never loads these, so a label or a
   generator quirk can't become a feature.
 - **Never in MongoDB:** the holdout. It stays encrypted in `$CALHACKS_HOLDOUT` (default `../calhacks-holdout/`), with its own
   simulated references, applied in memory via `ReferenceSet.overlay`.
-- **Getting data in:** `contracts-ingest` is the only way in for real data (`listings`, `known-sellers`, `crs`, `medians`).
+- **Getting data in:** `contracts-ingest` is the only way in for real data (`listings`, `known-sellers`, `medians`).
   Real listings are recorded as honest (`answer_keys.family = "real"`). Synthetic listings are written by
   `redteam` through `Repo.put_synthetic`.
 - **Train/val split:** `calhacks_contracts.splits.split_of(listing_id)`.
@@ -43,13 +43,20 @@ GateRequest {mandate, proposal{listing_id}, references}
 `references` are built by `ReferenceSet.for_listing(listing)` from a snapshot loaded once per batch (no network calls
 during decisions, G2).
 
+### Wallet terms
+
+- **Wallet:** where the payment goes, `checkout.pay_to`. It must equal `seller.pay_to` (`L1_PAYTO_MISMATCH`).
+- **Known wallet:** a `known_sellers[].pay_to` (case-insensitive). The only form of seller trust; there is no CRS.
+- **Unknown wallet:** any other wallet. Paid only up to `unknown_seller_cap_usd`, and then Layer 2 decides.
+- **Lookalike wallet:** an unknown wallet with a known wallet's first and last 4 hex characters. Layer 1 treats it as
+  unknown; Layer 2 flags it.
+
 ### Layer 1 rules (`RuleId`)
 
 | Rule | Check |
 |---|---|
 | `L1_PAYTO_MISMATCH` | `checkout.pay_to == seller.pay_to` (case-insensitive) |
-| `L1_SELLER_UNTRUSTED` | `checkout.pay_to` is a `known_sellers[].pay_to`, **or** `crs_result.verified` |
-| `L1_UNKNOWN_SELLER_CAP` | if not known (CRS-verified only): `item.price <= allowlist.unknown_seller_cap_usd` |
+| `L1_UNKNOWN_SELLER_CAP` | `checkout.pay_to` is a known wallet, **or** `item.price <= allowlist.unknown_seller_cap_usd` |
 | `L1_AMOUNT_MISMATCH` | `checkout.amount == round(item.price * 10^6)` |
 | `L1_OVER_MAX` | `item.price <= mandate.max_price` |
 | `L1_OVER_BUDGET` | `item.price <= mandate.spend_remaining` |
@@ -57,6 +64,9 @@ during decisions, G2).
 | `L1_ITEM_MISMATCH` | `checkout.item_id == item.id` |
 | `L1_PRODUCT_MISMATCH` | `item.product_key == mandate.product_key` |
 | `L1_TIMEOUT` | `checkout.max_timeout_seconds <= allowlist.max_timeout_s` (when present) |
+
+`L1_SELLER_UNTRUSTED` remains a valid `RuleId` but is deprecated: Layer 1 no longer runs it (`L1_UNKNOWN_SELLER_CAP`
+replaced it). It is kept only because the agent API's mock Gate still reports its known-store check under that id.
 
 Layer 1 CLI: `node gate/layer1/src/cli.ts < gate_inputs.jsonl > results.jsonl`. One `{"listing_id", "checks": [Check]}` line
 per input `GateInput`, same order.

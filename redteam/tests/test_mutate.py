@@ -50,8 +50,17 @@ def test_structural_changes(ctx):
     assert s.listing.checkout.item_id != s.listing.item.id
     _, s, case, base = run("product_switch", ctx)
     assert s.listing.item.product_key != case.mandate.product_key
-    m, s, _, _ = run("unverified_seller", ctx)
-    assert s.listing.checkout.pay_to.lower() not in known and not m.refs.crs
+    m, s, _, _ = run("unknown_seller", ctx)
+    assert s.listing.checkout.pay_to.lower() not in known and m.refs.wallets
+
+
+def test_capped_families_only_start_from_bases_within_the_cap(ctx):
+    refs, bases = ctx
+    cheap = bases[0].model_copy(deep=True)
+    cheap.listing_id, cheap.item.price = "R-cheap", 45.0
+    pool = [*bases, cheap]
+    for fam in mutate.CAPPED:
+        assert [b.listing_id for b in mutate.eligible_bases(fam, pool, refs)] == ["R-cheap"], fam
 
 
 def test_too_cheap_prices_below_median_and_keeps_checkout_consistent(ctx):
@@ -62,16 +71,16 @@ def test_too_cheap_prices_below_median_and_keeps_checkout_consistent(ctx):
     assert s.listing.checkout.amount == mutate.amount(s.listing.item.price)
 
 
-def test_layer2_families_get_a_trusted_seller(ctx):
+def test_layer2_families_move_unknown_sellers_to_a_fresh_wallet(ctx):
     refs, bases = ctx
-    untrusted = bases[0].model_copy(deep=True)
-    untrusted.seller.pay_to = untrusted.checkout.pay_to = "0x" + "ab" * 20
-    m = mutate.apply("too_cheap", untrusted, refs, random.Random(2), bases)
-    assert m.refs.crs and m.refs.crs[0].verified and m.refs.crs[0].source == "synthetic"
-    assert m.listing["seller"]["id"] == m.refs.crs[0].seller_id
-    # a trusted base seller is kept
+    unknown = bases[0].model_copy(deep=True)
+    unknown.seller.pay_to = unknown.checkout.pay_to = "0x" + "ab" * 20
+    m = mutate.apply("too_cheap", unknown, refs, random.Random(2), bases)
+    assert m.listing["seller"]["pay_to"].lower() in m.refs.wallets  # new unknown wallet with a first-seen date
+    assert m.listing["seller"]["id"] != unknown.seller.id
+    # a known base seller is kept
     m = mutate.apply("too_cheap", bases[0], refs, random.Random(2), bases)
-    assert not m.refs.crs and m.listing["seller"]["id"] == bases[0].seller.id
+    assert not m.refs.wallets and m.listing["seller"]["id"] == bases[0].seller.id
 
 
 def test_hidden_text_inserts_invisible_or_mixed_script_text(ctx):

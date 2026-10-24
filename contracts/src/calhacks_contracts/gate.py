@@ -30,17 +30,9 @@ class KnownSeller(Strict):
     domain: str
 
 
-class CrsResult(Strict):
-    seller_id: str
-    verified: bool
-    verified_at: IsoDate | None = Field(default=None, description="When verification was granted")
-    source: str = Field(default="crs", description="'crs' for the real API, 'stub' for the stand-in collection")
-
-
 class References(Strict):
     """Looked up by the Gate. Never supplied by the store."""
     known_sellers: list[KnownSeller] = []
-    crs_result: CrsResult | None = None
     market_median: float | None = Field(default=None, gt=0)
     pay_to_first_seen: IsoDate | None = None
 
@@ -65,8 +57,11 @@ class Case(Strict):
 
 
 RuleId = Literal[
-    "L1_PAYTO_MISMATCH", "L1_SELLER_UNTRUSTED", "L1_UNKNOWN_SELLER_CAP", "L1_AMOUNT_MISMATCH", "L1_OVER_MAX",
+    "L1_PAYTO_MISMATCH", "L1_UNKNOWN_SELLER_CAP", "L1_AMOUNT_MISMATCH", "L1_OVER_MAX",
     "L1_OVER_BUDGET", "L1_NETWORK", "L1_ASSET", "L1_ITEM_MISMATCH", "L1_PRODUCT_MISMATCH", "L1_TIMEOUT",
+    # Deprecated: the real Layer 1 no longer emits it (L1_UNKNOWN_SELLER_CAP replaced it with the CRS removal). Kept so
+    # the agent API's mock Gate, which still reports its known-store check under this id, stays valid.
+    "L1_SELLER_UNTRUSTED",
 ]
 
 

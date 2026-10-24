@@ -29,7 +29,8 @@ def test_score_fetches_listing_and_references_itself(trained, models_dir, repo):
     d = gate.score(request(repo, lid))
     assert isinstance(d, GateDecision)
     # The request's (empty) known_sellers are ignored: the Gate's own lookup finds the known wallet.
-    assert next(c for c in d.checks if c.rule == "L1_SELLER_UNTRUSTED").passed
+    cap = next(c for c in d.checks if c.rule == "L1_UNKNOWN_SELLER_CAP")
+    assert cap.passed and cap.detail == "known wallet"
     assert d.model_version == trained["model_id"]
 
 
@@ -46,7 +47,8 @@ def test_custom_fetch_without_db_refs_uses_request_references(trained, models_di
     gate = Gate(trained["model_id"], models_dir, fetch=lambda _id: listing, use_db_refs=False)
     req = request(repo, lid)
     d = gate.score(req)
-    assert d.failed_rule in ("L1_SELLER_UNTRUSTED", "L1_UNKNOWN_SELLER_CAP")  # no known sellers supplied
+    cap = next(c for c in d.checks if c.rule == "L1_UNKNOWN_SELLER_CAP")
+    assert cap.detail.startswith("unknown wallet")  # the request supplied no known sellers
 
 
 def test_router_fails_closed(trained, models_dir, repo):

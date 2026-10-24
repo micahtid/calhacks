@@ -12,7 +12,7 @@ from collections import Counter
 from collections.abc import Iterable
 from datetime import datetime, timezone
 
-from calhacks_contracts import AnswerKey, Case, CrsResult, KnownSeller, Listing
+from calhacks_contracts import AnswerKey, Case, KnownSeller, Listing
 from calhacks_contracts.db import Repo, get_db
 from calhacks_contracts.families import CONTRACTS_DIR
 from calhacks_contracts.splits import split_of
@@ -55,8 +55,6 @@ def seeded_mock_repo() -> Repo:
     for k in refs["known_sellers"]:
         r.put_known_seller(KnownSeller.model_validate(k))
         r.touch_wallet(k["pay_to"], "2000-01-01")
-    for c in refs["crs_results"]:
-        r.put_crs(CrsResult.model_validate(c))
     for m in refs["market_medians"]:
         r.put_median(m["product_key"], m["condition"], m["median"], m["n"], "fixture", "2026-10-24")
     rows = json.loads((fx / "real_listings.json").read_text(encoding="utf-8"))

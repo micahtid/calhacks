@@ -13,7 +13,7 @@ export function isKnownWallet(x: GateInput): boolean {
 
 // Every rule runs and reports; any failed check means skip. Checks come back in RULE_IDS order.
 export function checkLayer1(x: GateInput, ctx: Layer1Context): Layer1Result {
-  const { listing: l, mandate: m, references: refs } = x;
+  const { listing: l, mandate: m } = x;
   const { allowlist } = ctx;
   const co = l.checkout;
   const checks: Check[] = [];
@@ -22,11 +22,10 @@ export function checkLayer1(x: GateInput, ctx: Layer1Context): Layer1Result {
   add("L1_PAYTO_MISMATCH", sameAddress(co.pay_to, l.seller.pay_to),
     sameAddress(co.pay_to, l.seller.pay_to) ? null : `402 pays ${co.pay_to}, store.json says ${l.seller.pay_to}`);
 
+  // Seller trust: a known wallet is trusted; an unknown wallet only up to the cap (then Layer 2 decides).
   const known = isKnownWallet(x);
-  const crs = refs.crs_result?.verified === true;
-  add("L1_SELLER_UNTRUSTED", known || crs, known ? "known wallet" : crs ? "CRS-verified" : "unknown wallet, no CRS verification");
   add("L1_UNKNOWN_SELLER_CAP", known || l.item.price <= allowlist.unknown_seller_cap_usd + EPS,
-    known ? null : `unknown seller: price ${l.item.price} vs cap ${allowlist.unknown_seller_cap_usd}`);
+    known ? "known wallet" : `unknown wallet: price ${l.item.price} vs cap ${allowlist.unknown_seller_cap_usd}`);
 
   let charged = Number.POSITIVE_INFINITY;
   let amountOk = false;

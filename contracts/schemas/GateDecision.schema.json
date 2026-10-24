@@ -6,7 +6,6 @@
         "rule": {
           "enum": [
             "L1_PAYTO_MISMATCH",
-            "L1_SELLER_UNTRUSTED",
             "L1_UNKNOWN_SELLER_CAP",
             "L1_AMOUNT_MISMATCH",
             "L1_OVER_MAX",
@@ -15,7 +14,8 @@
             "L1_ASSET",
             "L1_ITEM_MISMATCH",
             "L1_PRODUCT_MISMATCH",
-            "L1_TIMEOUT"
+            "L1_TIMEOUT",
+            "L1_SELLER_UNTRUSTED"
           ],
           "title": "Rule",
           "type": "string"
@@ -101,7 +101,6 @@
         {
           "enum": [
             "L1_PAYTO_MISMATCH",
-            "L1_SELLER_UNTRUSTED",
             "L1_UNKNOWN_SELLER_CAP",
             "L1_AMOUNT_MISMATCH",
             "L1_OVER_MAX",
@@ -110,7 +109,8 @@
             "L1_ASSET",
             "L1_ITEM_MISMATCH",
             "L1_PRODUCT_MISMATCH",
-            "L1_TIMEOUT"
+            "L1_TIMEOUT",
+            "L1_SELLER_UNTRUSTED"
           ],
           "type": "string"
         },

@@ -8,13 +8,13 @@ from calhacks_contracts.coordinator import (
     PromotionDecision, Rate, RoundInput, RoundMetrics, RoundReport, rate,
 )
 from calhacks_contracts.gate import (
-    Case, Check, CrsResult, GateDecision, GateInput, GateRequest, KnownSeller, Mandate, Proposal, Reason, References,
+    Case, Check, GateDecision, GateInput, GateRequest, KnownSeller, Mandate, Proposal, Reason, References,
 )
 from calhacks_contracts.listing import Checkout, Item, Listing, ListingMeta, Seller
 from calhacks_contracts.synthetic import AnswerKey, GenInfo, SyntheticListing
 
 __all__ = [
-    "AnswerKey", "AttackSpec", "Budget", "Case", "Check", "Checkout", "CoordinatorOutput", "Cost", "CrsResult",
+    "AnswerKey", "AttackSpec", "Budget", "Case", "Check", "Checkout", "CoordinatorOutput", "Cost",
     "FailureCluster", "FeatureChange", "GateDecision", "GateInput", "GateRequest", "GenInfo", "HoldoutTotals", "Item",
     "KnownSeller", "Listing", "ListingMeta", "Mandate", "Miss", "PromotionDecision", "Proposal", "Rate", "Reason",
     "References", "RoundInput", "RoundMetrics", "RoundReport", "Seller", "SyntheticListing", "rate",

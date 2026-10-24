@@ -42,10 +42,8 @@ export interface SyntheticListing { listing: Listing; answer_key: AnswerKey; gen
 export interface Mandate { product_key: string; max_price: number; spend_remaining: number }
 export interface Proposal { listing_id: string; scout_notes?: string | null }
 export interface KnownSeller { seller_id: string; pay_to: Address; domain: string }
-export interface CrsResult { seller_id: string; verified: boolean; verified_at?: string | null; source: string }
 export interface References {
   known_sellers: KnownSeller[];
-  crs_result?: CrsResult | null;
   market_median?: number | null;
   pay_to_first_seen?: string | null;
 }
@@ -54,11 +52,12 @@ export interface GateRequest { mandate: Mandate; proposal: Proposal; references:
 export interface GateInput { mandate: Mandate; listing: Listing; references: References }
 
 export type RuleId =
-  | "L1_PAYTO_MISMATCH" | "L1_SELLER_UNTRUSTED" | "L1_UNKNOWN_SELLER_CAP" | "L1_AMOUNT_MISMATCH" | "L1_OVER_MAX"
-  | "L1_OVER_BUDGET" | "L1_NETWORK" | "L1_ASSET" | "L1_ITEM_MISMATCH" | "L1_PRODUCT_MISMATCH" | "L1_TIMEOUT";
+  | "L1_PAYTO_MISMATCH" | "L1_UNKNOWN_SELLER_CAP" | "L1_AMOUNT_MISMATCH" | "L1_OVER_MAX"
+  | "L1_OVER_BUDGET" | "L1_NETWORK" | "L1_ASSET" | "L1_ITEM_MISMATCH" | "L1_PRODUCT_MISMATCH" | "L1_TIMEOUT"
+  | "L1_SELLER_UNTRUSTED"; // deprecated: only the agent API's mock Gate emits it; not in RULE_IDS (Layer 1 never runs it)
 
 export const RULE_IDS: readonly RuleId[] = [
-  "L1_PAYTO_MISMATCH", "L1_SELLER_UNTRUSTED", "L1_UNKNOWN_SELLER_CAP", "L1_AMOUNT_MISMATCH", "L1_OVER_MAX",
+  "L1_PAYTO_MISMATCH", "L1_UNKNOWN_SELLER_CAP", "L1_AMOUNT_MISMATCH", "L1_OVER_MAX",
   "L1_OVER_BUDGET", "L1_NETWORK", "L1_ASSET", "L1_ITEM_MISMATCH", "L1_PRODUCT_MISMATCH", "L1_TIMEOUT",
 ];
 

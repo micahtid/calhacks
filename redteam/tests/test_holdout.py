@@ -7,8 +7,19 @@ from redteam.config import HOLDOUT, HOLDOUT_FILE
 from redteam.generate import run_spec
 
 
+def add_cheap_real(repo):
+    """The contract fixtures' real listings cost $175 and $699; families on unknown wallets need one within the cap."""
+    from calhacks_contracts import Case, ListingMeta, Mandate
+    base = repo.get_listing("R-0001").model_copy(deep=True)
+    base.listing_id, base.item.price, base.checkout.amount = "R-cheap", 45.0, "45000000"
+    repo.put_real(base, ListingMeta(listing_id="R-cheap", source="test"),
+                  Case(listing_id="R-cheap", mandate=Mandate(product_key=base.item.product_key, max_price=60,
+                                                            spend_remaining=500)))
+
+
 def test_build_never_writes_to_mongo_and_is_encrypted(repo, fake_client):
-    before = {c: repo.db[c].count_documents({}) for c in ("listings", "answer_keys", "gen", "cases", "crs_results")}
+    add_cheap_real(repo)
+    before = {c: repo.db[c].count_documents({}) for c in ("listings", "answer_keys", "gen", "cases", "wallets")}
     meta = holdout.build(per_family=8, slice_n=3, client=fake_client(), r=repo)
     after = {c: repo.db[c].count_documents({}) for c in before}
     assert before == after

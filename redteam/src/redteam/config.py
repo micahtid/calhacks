@@ -16,7 +16,7 @@ MODELS_DIR = Path(os.environ.get("CALHACKS_MODELS", GATE_DIR / "models")).resolv
 DATA = Path(os.environ.get("CALHACKS_DATA", REPO / "data")).resolve()  # local logs only; listings are in MongoDB
 ROUNDS = DATA / "rounds"
 HOLDOUT = Path(os.environ.get("CALHACKS_HOLDOUT", REPO.parent / "calhacks-holdout")).resolve()
-HOLDOUT_FILE = HOLDOUT / "holdout.v2.enc"
+HOLDOUT_FILE = HOLDOUT / "holdout.v3.enc"
 HOLDOUT_KEY_FILE = HOLDOUT / "holdout.key"
 FACTORY_SETTINGS = REPO / "redteam" / "factory" / "settings.json"
 

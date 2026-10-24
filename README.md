@@ -34,7 +34,7 @@ LLM side (no wallet)            Code side (holds wallet)         Payment rails
 ---------------------           ------------------------         -------------
 You (goal + rules)              Gate (buy / skip)                Facilitator (x402.org)
 Scout (Claude)          ---->   Wallet (viem signer)     ---->   Base Sepolia (USDC)
-Listings (Apify crawler)        CRS (optional)
+Listings (Apify crawler)
                                 Storefronts (real + scam)
 Training loop: Factory (Fix Droid), Bitdeer (scam writer)
 ```
@@ -120,7 +120,7 @@ Secrets go in `.env` files (gitignored). Commit only `.env.example`.
 - **One `Listing` shape** for real listings, synthetic listings and the Gate's input. A synthetic listing's answer key
   (label, family, attack diff) and generator info are stored in separate collections the Gate never reads.
 - **All data lives in MongoDB** (`redteam` database): listings, cases (mandates), answer keys, and the references the Gate
-  looks up itself: known sellers, CRS results, market medians, wallet first-seen dates.
+  looks up itself: known sellers, market medians, wallet first-seen dates.
 - **Getting real data in:**
 
   ```sh
@@ -128,15 +128,15 @@ Secrets go in `.env` files (gitignored). Commit only `.env.example`.
   uv run contracts-ingest listings FILE.jsonl --source apify:ebay   # Listing per line
   uv run contracts-ingest known-sellers FILE.json
   uv run contracts-ingest medians FILE.json --source apify:ebay-sold
-  uv run contracts-ingest crs FILE.json                             # CRS stand-in
   uv run contracts-ingest stats
   uv run pytest                                                     # tests use mongomock, not Atlas
   ```
 
-- **Attack families** (`contracts/families.json`): Layer 1 catches payment mismatch, lookalike wallet, bait-and-switch,
-  product switch and unverified seller by rule. Layer 2 handles too-cheap, prompt injection, hidden text and fake reviews.
+- **Attack families** (`contracts/families.json`): Layer 1 catches payment mismatch, bait-and-switch and product
+  switch by rule. Layer 2 handles lookalike wallets and unknown sellers within the cap, too-cheap, prompt injection, hidden
+  text and fake reviews.
   `urgency_pressure` and `lookalike_domain` are held out of training entirely, for the final exam.
-- **Unknown sellers:** paid only if CRS-verified, and only up to `unknown_seller_cap_usd` ($100) in `contracts/allowlist.json`. $100 covers about 92% of the scraped listings.
+- **Seller trust:** a **known wallet** (on the known-seller list) is trusted. An **unknown wallet** is paid only up to `unknown_seller_cap_usd` ($100, `contracts/allowlist.json`), and Layer 2 then decides; $100 covers about 92% of the scraped listings. CRS is not used.
 
 On this network uv may need `UV_SYSTEM_CERTS=1` (TLS interception).
 
@@ -144,13 +144,14 @@ On this network uv may need `UV_SYSTEM_CERTS=1` (TLS interception).
 
 Two layers decide whether the wallet may pay; both must say yes. Details: `gate/README.md`.
 
-- **Layer 1** (`gate/layer1`, TypeScript, fixed rules that are never learned): checkout wallet matches `store.json`; wallet is
-  a known seller's **or** the seller is CRS-verified (CRS-only sellers capped at `unknown_seller_cap_usd`); 402 amount equals
+- **Layer 1** (`gate/layer1`, TypeScript, fixed rules that are never learned): checkout wallet matches `store.json`; a known
+  wallet, or an unknown wallet priced within `unknown_seller_cap_usd` ($100); 402 amount equals
   the price; price within max price and spend remaining; network and asset allowlisted; checkout item and product match the
   listing and the mandate; 402 timeout at most 120s. `node gate/layer1/src/cli.ts < gate_inputs.jsonl`. It is an npm
   workspace: `npm run test:gate-l1`; root `npm run build` / `npm run lint` typecheck it.
+  `L1_SELLER_UNTRUSTED` stays a valid (deprecated) `RuleId` only for the agent API's mock Gate; Layer 1 no longer runs it.
 - **Layer 2** (`gate/gatepy` + `gate/features`, Python): a LightGBM risk score that runs only when Layer 1 passes and can
-  only turn a buy into a skip. Features from issue #1: price vs median, CRS verification and age, known wallet and wallet age,
+  only turn a buy into a skip. Features from issue #1: price vs median, known wallet and wallet age,
   domain and wallet lookalikes, injection and hidden-text scores, review similarity. Each decision carries its top 3 reasons.
   Feature files are checked statically before import (`gatepy.sandbox`): no file, env, network or object-graph access.
 - **Data:** training and evaluation read listings, mandates and references from MongoDB (`MONGODB_DB_REDTEAM`); answer keys

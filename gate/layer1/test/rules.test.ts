@@ -11,14 +11,14 @@ const failures = (x: GateInput) => checkLayer1(x, ctx).checks.filter((c) => !c.p
 const LIVE_HEADER =
   "eyJ4NDAyVmVyc2lvbiI6MiwiZXJyb3IiOiJQYXltZW50IHJlcXVpcmVkIiwicmVzb3VyY2UiOnsidXJsIjoiaHR0cHM6Ly9jYWxoYWNrcy5taWNhaHRpZC5jb20vYXBpL2NoZWNrb3V0L3RldHJpcy1nYiIsImRlc2NyaXB0aW9uIjoiUGl4ZWwgQ2FydCBSZXRybyBjaGVja291dCIsIm1pbWVUeXBlIjoiYXBwbGljYXRpb24vanNvbiJ9LCJhY2NlcHRzIjpbeyJzY2hlbWUiOiJleGFjdCIsIm5ldHdvcmsiOiJlaXAxNTU6ODQ1MzIiLCJhbW91bnQiOiIyNTAwMDAwIiwiYXNzZXQiOiIweDAzNkNiRDUzODQyYzU0MjY2MzRlNzkyOTU0MWVDMjMxOGYzZENGN2UiLCJwYXlUbyI6IjB4NDVmRTkyOERhQTZBMTYzNjJjZDUxREQyNTY2MEJmNTQwYzE2Yzg2MiIsIm1heFRpbWVvdXRTZWNvbmRzIjoxMjAsImV4dHJhIjp7Im5hbWUiOiJVU0RDIiwidmVyc2lvbiI6IjIifX1dfQ==";
 
-// Expected Layer 1 failures for every contract fixture. The $25 unknown-seller cap blocks CRS-only sellers above it.
+// Expected Layer 1 failures for every contract fixture. Unknown wallets are paid only up to the $100 cap.
 const EXPECTED: Record<string, string[]> = {
   "R-0001": [],
   "R-0002": [],
-  "S-0001": ["L1_PAYTO_MISMATCH", "L1_SELLER_UNTRUSTED", "L1_UNKNOWN_SELLER_CAP"],
-  "S-0002": ["L1_SELLER_UNTRUSTED", "L1_UNKNOWN_SELLER_CAP"],
+  "S-0001": ["L1_PAYTO_MISMATCH", "L1_UNKNOWN_SELLER_CAP"],
+  "S-0002": ["L1_UNKNOWN_SELLER_CAP"], // $175 lookalike wallet: unknown and over the cap
   "S-0003": ["L1_ITEM_MISMATCH"],
-  "S-0004": [], // $49 CRS-only seller: under the $100 cap, so Layer 2 decides
+  "S-0004": [], // $49 unknown wallet: under the $100 cap, so Layer 2 decides
   "S-0005": [],
   "S-0006": [],
   "S-0007": [],
@@ -41,7 +41,7 @@ for (const [id, want] of Object.entries(EXPECTED)) {
   });
 }
 
-test("a CRS-verified unknown seller above the cap is blocked", () => {
+test("an unknown wallet above the cap is blocked", () => {
   const x = byId("S-0004");
   x.listing.item.price = 150;
   x.listing.checkout.amount = "150000000";
@@ -49,19 +49,23 @@ test("a CRS-verified unknown seller above the cap is blocked", () => {
   assert.deepEqual(failures(x), ["L1_UNKNOWN_SELLER_CAP"]);
 });
 
-test("a CRS-verified unknown seller under the cap passes", () => {
+test("an unknown wallet under the cap passes", () => {
   const x = byId("S-0004");
   x.listing.item.price = 20;
   x.listing.checkout.amount = "20000000";
   assert.deepEqual(failures(x), []);
 });
 
-test("CRS present but not verified does not make a seller trusted", () => {
-  const x = byId("S-0004");
-  x.references.crs_result = { ...x.references.crs_result!, verified: false };
-  x.listing.item.price = 20;
-  x.listing.checkout.amount = "20000000";
-  assert.deepEqual(failures(x), ["L1_SELLER_UNTRUSTED"]);
+test("a known wallet is not capped", () => {
+  const x = byId("R-0002"); // $699 from a known wallet
+  assert.deepEqual(failures(x), []);
+});
+
+test("a lookalike of a known wallet is still an unknown wallet", () => {
+  const x = byId("S-0002");
+  x.listing.item.price = 50;
+  x.listing.checkout.amount = "50000000";
+  assert.deepEqual(failures(x), []); // reaches Layer 2, whose lookalike features must catch it
 });
 
 test("known wallet match is case-insensitive", () => {

@@ -5,7 +5,7 @@ These never enter MongoDB; they only exercise every feature before training.
 import json
 from functools import cache
 
-from calhacks_contracts import Case, CrsResult, GateInput, KnownSeller, Listing, SyntheticListing
+from calhacks_contracts import Case, GateInput, KnownSeller, Listing, SyntheticListing
 from calhacks_contracts.db import ReferenceSet
 
 from gatepy import CONTRACTS
@@ -22,7 +22,6 @@ def fixture_refs() -> ReferenceSet:
     r = _read("references.json")
     return ReferenceSet(
         known_sellers=[KnownSeller.model_validate(k) for k in r["known_sellers"]],
-        crs={c["seller_id"]: CrsResult.model_validate(c) for c in r["crs_results"]},
         medians={(m["product_key"], m["condition"]): m["median"] for m in r["market_medians"]},
         wallets={},
     )

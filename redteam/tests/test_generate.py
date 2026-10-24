@@ -44,11 +44,9 @@ def test_code_only_families_skip_the_llm_and_write_to_mongo(repo, fake_client):
     assert set(doc) == {"_id", *Listing.model_fields}
     fams = {k.family for k in repo.answer_keys({"_id": {"$regex": "^S1-S-tc"}})}
     assert "too_cheap" in fams and fams - {"too_cheap"} <= {"legit_plain", "legit_real_discount",
-                                                             "legit_new_verified_seller", "legit_mixed_reviews"}
+                                                             "legit_new_seller", "legit_mixed_reviews"}
     assert set(repo.real_listing_ids()) == before
     assert repo.db.specs.find_one({"_id": "S-tc"})["round"] == 1
-    # simulated references were stored for synthetic sellers that needed them
-    assert repo.db.crs_results.count_documents({"source": "synthetic"}) >= 0
 
 
 def test_llm_spec_with_mock_client(repo, fake_client):

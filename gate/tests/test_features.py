@@ -24,9 +24,8 @@ def test_unpriced_product_is_neutral(inputs):
 def test_trust_features(inputs):
     assert f("known_wallet", inputs["R-0001"]) == 1.0
     assert f("known_wallet", inputs["S-0004"]) == 0.0
-    assert f("crs_verified", inputs["S-0004"]) == 1.0
-    assert f("crs_verified", inputs["R-0001"]) == 0.0
-    assert f("crs_days_verified", inputs["R-0001"]) == 0.0
+    assert f("known_wallet", inputs["R-0001"]) == 1.0
+    assert f("known_wallet", inputs["S-0004"]) == 0.0
     x = inputs["S-0004"].model_copy(deep=True)
     x.references.pay_to_first_seen = "2000-01-01"
     assert f("payto_age_days", x) > 3000

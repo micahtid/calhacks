@@ -27,7 +27,7 @@ All commands run from the repo root. Real listings must be in MongoDB first (`co
 ## Where things go
 
 - **MongoDB** (`redteam` database): synthetic `listings` + `answer_keys` + `gen` + `cases` (via `Repo.put_synthetic`),
-  simulated `crs_results` (`source: "synthetic"`) and `wallets` for generated sellers, `specs` (each AttackSpec, its
+  simulated `wallets` (first-seen dates) for generated sellers, `specs` (each AttackSpec, its
   round and summary) and `rounds` (generation spend, score, promotions, the RoundReport, coordinator usage).
 - **`gate/models/`**: model files and `promoted.json` (history includes the holdout totals recorded on promotion).
 - **`data/rounds/R{n}/`**: local logs only: `calls.jsonl` (every MCP call), `usage.json`, `events.jsonl`, `report.json`.

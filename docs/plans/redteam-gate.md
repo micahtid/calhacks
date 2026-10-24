@@ -181,6 +181,22 @@ What the logged sessions show:
 
 ---
 
+## Revision 3 (Oct 24): CRS removed
+
+CRS is no longer part of the process (user decision). Seller trust is now the known-wallet list plus the unknown-seller
+cap:
+
+- **Known wallet** (on `known_sellers`): trusted at any price within the user's max price and budget.
+- **Unknown wallet:** paid only up to `unknown_seller_cap_usd` ($100); Layer 2 then decides. Above $100, Layer 1 skips
+  (`L1_UNKNOWN_SELLER_CAP`). `L1_SELLER_UNTRUSTED` is gone.
+- **Layer 2:** loses `crs_verified` and `crs_days_verified`; it keeps `known_wallet` and `payto_age_days`.
+- **Families:** `lookalike_payto` and `unknown_seller` (was `unverified_seller`) reach Layer 2 when priced within the
+  cap. `legit_new_verified_seller` is now `legit_new_seller`.
+- **Data:** the attack factory and the holdout no longer create CRS records; generated sellers only get a wallet
+  first-seen date.
+
+Where this document mentions CRS below, it is historical.
+
 ## Revision 2 (Oct 24): issue #1 contracts and MongoDB
 
 This revision supersedes Part 2 and every place below that mentions the `Snapshot` format, Pixel Cart reference data or

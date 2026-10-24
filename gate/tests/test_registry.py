@@ -8,7 +8,7 @@ from gatepy.selftest import fixture_inputs
 
 EXPECTED = {
     "price_ratio": -1, "price_too_low": 1, "has_median": 0,
-    "known_wallet": -1, "crs_verified": -1, "crs_days_verified": -1, "payto_age_days": -1,
+    "known_wallet": -1, "payto_age_days": -1,
     "domain_known": -1, "domain_similarity_to_known": 1,
     "payto_lookalike": 1, "payto_affix_match": 1,
     "injection_hits_text": 1, "injection_hits_reviews": 1, "imperative_to_agent": 1,

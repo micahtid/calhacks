@@ -533,7 +533,7 @@
       "additionalProperties": false,
       "properties": {
         "id": {
-          "description": "Seller account; known-seller list and CRS lookup",
+          "description": "Seller account; known-seller list lookup",
           "title": "Id",
           "type": "string"
         },

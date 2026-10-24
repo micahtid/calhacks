@@ -4,7 +4,7 @@ Contents, all mutated from the real listings in MongoDB:
   (a) the held-out families (families.json: urgency_pressure, lookalike_domain), with honest listings mixed in;
   (b) a slice of every other scam family.
 LLM text is written by the holdout model (Nemotron), which is never used for training. The listings, their answer
-keys, cases and the simulated references they need (CRS stand-ins, wallet first-seen) are stored together, encrypted,
+keys, cases and the simulated references they need (wallet first-seen dates) are stored together, encrypted,
 outside the repo. Only the MCP server process gets the key (HOLDOUT_KEY env). Scoring overlays the simulated
 references on a MongoDB reference snapshot in memory and returns totals only.
 
@@ -19,14 +19,14 @@ import os
 import sys
 from collections import Counter
 
-from calhacks_contracts import Case, CrsResult, HoldoutTotals, Rate, SyntheticListing
+from calhacks_contracts import Case, HoldoutTotals, Rate, SyntheticListing
 from cryptography.fernet import Fernet
 
 from redteam import gate_client, store
 from redteam.config import HOLDOUT, HOLDOUT_FILE, HOLDOUT_KEY_FILE, HOLDOUT_MODEL, REPO, holdout_families, scam_families
 from redteam.generate import run_spec
 
-META_FILE = HOLDOUT / "holdout.v2.meta.json"
+META_FILE = HOLDOUT / "holdout.v3.meta.json"
 
 
 def _key(create: bool = False) -> bytes:
@@ -70,18 +70,17 @@ def build(*, force: bool = False, per_family: int = 60, slice_n: int = 20, seed:
              for f in sorted(holdout_families())]
     specs += [{"spec_id": f"H-slice-{f}", "family": f, "n": slice_n, "legit_ratio": 0.0, "mode": "mutate_real"}
               for f in scam_families()]
-    items, crs, wallets, dropped, tokens = [], [], {}, Counter(), []
+    items, wallets, dropped, tokens = [], {}, Counter(), []
     for spec in specs:
         out = run_spec(spec, round_=0, r=r, client=client, write=False, allow_holdout=True, seed=seed,
                        models=[HOLDOUT_MODEL], id_prefix="H")
         items += out["_items"]
-        crs += out["_refs"].crs
         wallets.update(out["_refs"].wallets)
         dropped.update(out["drops_by_family"])
         tokens.append(out["tokens"])
-    payload = {"version": 2, "items": [{"synthetic": s.model_dump(mode="json"), "case": c.model_dump(mode="json")}
+    payload = {"version": 3, "items": [{"synthetic": s.model_dump(mode="json"), "case": c.model_dump(mode="json")}
                                        for s, c in items],
-               "refs": {"crs": [c.model_dump(mode="json") for c in crs], "wallets": wallets}}
+               "refs": {"wallets": wallets}}
     HOLDOUT.mkdir(parents=True, exist_ok=True)
     HOLDOUT_FILE.write_bytes(Fernet(_key(create=True)).encrypt(json.dumps(payload).encode()))
     meta = {"n": len(items), "by_family": dict(Counter(s.answer_key.family for s, _ in items)),
@@ -98,16 +97,15 @@ def _load():
     for row in payload["items"]:
         s = SyntheticListing.model_validate(row["synthetic"])
         items.append((s.listing, Case.model_validate(row["case"]), s.answer_key))
-    crs = [CrsResult.model_validate(c) for c in payload["refs"]["crs"]]
-    return items, crs, payload["refs"]["wallets"]
+    return items, payload["refs"]["wallets"]
 
 
 def totals(model_id: str, r=None) -> HoldoutTotals | None:
     """Aggregate holdout recall and false-block rate for one model. Never returns rows."""
     if not available():
         return None
-    items, crs, wallets = _load()
-    refs = (r or store.repo()).reference_snapshot().overlay(crs=crs, wallets=wallets)
+    items, wallets = _load()
+    refs = (r or store.repo()).reference_snapshot().overlay(wallets=wallets)
     m = gate_client.evaluate_items(model_id, items, refs, rows=False)
     if m.get("error"):
         raise RuntimeError(m["error"])
