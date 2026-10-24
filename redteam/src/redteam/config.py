@@ -11,7 +11,7 @@ load_dotenv(REPO / ".env")
 
 CONTRACTS = REPO / "contracts"
 GATE_DIR = REPO / "gate"  # the coordinator's cwd
-MODELS_DIR = GATE_DIR / "models"
+MODELS_DIR = Path(os.environ.get("CALHACKS_MODELS", GATE_DIR / "models")).resolve()  # override is for tests only
 DATA = Path(os.environ.get("CALHACKS_DATA", REPO / "data")).resolve()
 ROUNDS = DATA / "rounds"
 HOLDOUT = Path(os.environ.get("CALHACKS_HOLDOUT", REPO.parent / "calhacks-holdout")).resolve()

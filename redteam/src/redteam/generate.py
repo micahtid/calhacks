@@ -65,7 +65,7 @@ def plan_slots(spec: dict, batch_id: str, seed: int, allow_holdout: bool = False
 
 
 def next_batch_id(out_dir: Path, family: str) -> str:
-    return f"b{len(list(out_dir.glob('*.jsonl'))) + 1:02d}-{family}"
+    return f"b{len(list(out_dir.glob('b*.jsonl'))) + 1:02d}-{family}"
 
 
 def _texts_online(client, model, temperature, slots, target, tally):

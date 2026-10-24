@@ -13,12 +13,12 @@ def split_of(snapshot_id: str) -> str:
 
 
 def round_files(rounds: Iterable[int] | None = None) -> list[Path]:
-    """Batch files for the given rounds (all rounds when None), in a stable order."""
+    """Batch files (b*.jsonl) for the given rounds (all rounds when None), in a stable order."""
     if not ROUNDS.exists():
         return []
     wanted = None if rounds is None else {f"R{r}" for r in rounds}
     return sorted(p for d in ROUNDS.iterdir() if d.is_dir() and (wanted is None or d.name in wanted)
-                  for p in d.glob("*.jsonl"))
+                  for p in d.glob("b*.jsonl"))
 
 
 def iter_rows(paths: Iterable[Path], split: str = "all") -> Iterator[dict]:
