@@ -1,15 +1,21 @@
-"""Shared helpers for the setup scrapers: env, timed Apify actor runs, paging, MongoDB, and the listing format.
+"""Shared helpers for the setup scrapers: env, the Apify run gate, timed actor runs, paging, MongoDB,
+and the listing format.
 
 Self-check: python setup/apify_common.py
 """
 
 import argparse
+import heapq
+import itertools
 import json
 import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor
+from contextlib import contextmanager
 from pathlib import Path
 
 from pymongo import MongoClient, ReplaceOne
@@ -40,28 +46,102 @@ def load_env() -> str:
 
 
 def api(token: str, path: str, body: dict | None = None):
+    """Call the Apify API. GETs retry through network blips (DNS, resets, timeouts).
+
+    POSTs (starting a run) never retry: one that reached Apify before failing would start a second run.
+    """
     req = urllib.request.Request(
         f"https://api.apify.com/v2{path}",
         data=json.dumps(body).encode() if body is not None else None,
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         method="POST" if body is not None else "GET",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=60) as res:
-            return json.load(res)
-    except urllib.error.HTTPError as e:
-        raise SystemExit(f"Apify {e.code}: {e.read().decode()}")
+    attempts = 1 if body is not None else 6
+    for attempt in range(1, attempts + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as res:
+                return json.load(res)
+        except urllib.error.HTTPError as e:
+            raise SystemExit(f"Apify {e.code}: {e.read().decode()}")
+        except (urllib.error.URLError, OSError) as e:  # DNS failure, connection reset, timeout
+            if attempt == attempts:
+                raise SystemExit(f"Apify unreachable after {attempts} attempts: {e}")
+            wait = 2 ** attempt  # 2, 4, 8, 16, 32s: rides out about a minute of network trouble
+            print(f"network error ({e}), retrying in {wait}s")
+            time.sleep(wait)
 
 
-def scrape(token: str, actor: str, input: dict, noun: str, timeout: int | None = None) -> list[dict]:
-    """Start an actor async and poll its dataset, timing startup and each item.
+class Gate:
+    """The account's Apify limits, shared by every run this process starts.
+
+    At most SLOTS runs at once within MEMORY_MB. Each scalable run gets the largest power of two
+    (up to MAX_RUN_MB) that still leaves RESERVE_MB for every other free slot, so 5 runs land at
+    4+4+4+2+2 GB. Memory is free on these pay-per-event actors and buys CPU, so we use all of it.
+    Lower `priority` goes first (search pages before reviews), ties in arrival order.
+    Only runs started in this process are counted: run all marketplaces from scrape_all.py.
+    """
+
+    SLOTS, MEMORY_MB, RESERVE_MB, MAX_RUN_MB = 5, 16384, 2048, 4096  # /users/me/limits
+
+    def __init__(self):
+        self._cond = threading.Condition()
+        self._free_slots, self._free_mb = self.SLOTS, self.MEMORY_MB
+        self._queue: list[tuple[int, int]] = []
+        self._seq = itertools.count()
+
+    def _size(self, min_mb: int, scale: bool) -> int:
+        if not scale:
+            return min_mb
+        available = self._free_mb - (self._free_slots - 1) * self.RESERVE_MB
+        mb = self.MAX_RUN_MB
+        while mb > available and mb > min_mb:
+            mb //= 2
+        return mb
+
+    @contextmanager
+    def run(self, min_mb: int, scale: bool = True, priority: int = 1):
+        """Wait for a slot, then yield the memory (MB) to start the run with."""
+        with self._cond:
+            ticket = (priority, next(self._seq))
+            heapq.heappush(self._queue, ticket)
+            while not (self._queue[0] == ticket and self._free_slots
+                       and self._size(min_mb, scale) <= self._free_mb):
+                self._cond.wait()
+            heapq.heappop(self._queue)
+            mb = self._size(min_mb, scale)
+            self._free_slots -= 1
+            self._free_mb -= mb
+            self._cond.notify_all()  # the next ticket in line may fit too
+        try:
+            yield mb
+        finally:
+            with self._cond:
+                self._free_slots += 1
+                self._free_mb += mb
+                self._cond.notify_all()
+
+
+GATE = Gate()
+
+
+def scrape(token: str, actor: str, input: dict, noun: str, timeout: int | None = None,
+           min_memory: int = 1024, scale: bool = True, priority: int = 1) -> list[dict]:
+    """Start an actor run through GATE and poll its dataset, timing startup and each item.
 
     timeout (seconds) makes Apify stop the run; a timed-out run returns the items it got.
+    min_memory is the smallest allocation the actor was tested with; with scale the gate gives it
+    more when there is room. scale=False runs at exactly min_memory (eBay: its work runs elsewhere).
     """
+    with GATE.run(min_memory, scale, priority) as memory:
+        return _scrape(token, actor, input, noun, timeout, memory)
+
+
+def _scrape(token: str, actor: str, input: dict, noun: str, timeout: int | None, memory: int) -> list[dict]:
     # ponytail: 1s polling, so per-item times are only accurate to ~1s
-    print(f"\n== {actor}")
+    print(f"\n== {actor} ({noun}, {memory} MB)")
     t0 = time.perf_counter()
-    run = api(token, f"/acts/{actor}/runs" + (f"?timeout={timeout}" if timeout else ""), input)["data"]
+    options = "&".join(f"{k}={v}" for k, v in (("timeout", timeout), ("memory", memory)) if v)
+    run = api(token, f"/acts/{actor}/runs?{options}", input)["data"]
     print(f"[{time.perf_counter() - t0:6.1f}s] run {run['id']} created")
 
     items: list[dict] = []
@@ -91,21 +171,20 @@ def scrape(token: str, actor: str, input: dict, noun: str, timeout: int | None =
         print(f"run hit the {timeout}s time limit, keeping {len(items)} {noun} it got")
     elif status != "SUCCEEDED":
         raise SystemExit(f"Apify run ended with {status}")
-    if items:
-        scraping = last - running_at
-        print(f"startup {running_at - t0:.1f}s, scraping {scraping:.1f}s "
-              f"({scraping / len(items):.1f}s/{noun} avg), total {total:.1f}s")
+    scraping = f"scraping {last - running_at:.1f}s ({(last - running_at) / len(items):.1f}s/{noun} avg), " if items else ""
+    print(f"[run stats] {noun} at {memory} MB: startup {(running_at or t0) - t0:.1f}s, {scraping}"
+          f"{len(items)} items, total {total:.1f}s")
     return items
 
 
-def scrape_retrying(token: str, actor: str, input: dict, noun: str, attempts: int = 3) -> list[dict]:
+def scrape_retrying(token: str, actor: str, input: dict, noun: str, attempts: int = 3, **options) -> list[dict]:
     """scrape(), retried when it comes back empty.
 
     eBay and Depop anti-bot blocks still end the run as SUCCEEDED with 0 results, and a fresh run
     usually gets through. A real end of results costs the extra attempts, which are cheap.
     """
     for attempt in range(1, attempts + 1):
-        items = scrape(token, actor, input, noun)
+        items = scrape(token, actor, input, noun, **options)
         if items:
             return items
         print(f"attempt {attempt}/{attempts}: no results (likely blocked), "
@@ -179,23 +258,33 @@ def mongo():
     return db
 
 
-def run(marketplace: str, fetch, external_id, build, page_size: int | None, enrich=None) -> None:
-    """CLI for one scraper. Writes each batch to MongoDB as it goes, plus the search position.
-
-    enrich(token, listings, save), if given, adds slow extras (Amazon reviews) after the batch
-    is already saved, calling save([listing]) to store each listing again as it completes.
-    """
-    parser = argparse.ArgumentParser(description=f"Scrape {marketplace} listings for {QUERY!r} into MongoDB.")
-    parser.add_argument("--count", type=int, default=DEFAULT_COUNT, help="new listings to collect")
+def parse_args(description: str) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=description)
+    parser.add_argument("--count", type=int, default=DEFAULT_COUNT, help="new listings to collect per marketplace")
     parser.add_argument("--continue", dest="resume", action="store_true",
                         help="resume from the saved position and skip listings already in MongoDB")
-    args = parser.parse_args()
+    return parser.parse_args()
 
+
+def cli(spec: dict) -> None:
+    """Entry point for one marketplace's script."""
+    args = parse_args(f"Scrape {spec['marketplace']} listings for {QUERY!r} into MongoDB.")
+    run(**spec, count=args.count, resume=args.resume)
+
+
+def run(marketplace: str, fetch, external_id, build, page_size: int | None,
+        count: int, resume: bool, enrich_one=None) -> None:
+    """Scrape one marketplace. Writes each batch to MongoDB as it goes, plus the search position.
+
+    enrich_one(token, listing), if given, adds a slow extra (Amazon reviews) to one listing that is
+    already saved. Those run in the background through GATE while the next search page is fetched,
+    and each listing is saved again as it completes.
+    """
     token = load_env()
     db = mongo()
     state_id = f"{marketplace}:{QUERY}"
     seen, state = set(), {"page": 1, "offset": 0}
-    if args.resume:
+    if resume:
         seen = set(db.listings.distinct("_id", {"source.marketplace": marketplace}))
         saved = db.scrape_state.find_one({"_id": state_id})
         if saved:
@@ -208,23 +297,33 @@ def run(marketplace: str, fetch, external_id, build, page_size: int | None, enri
     def save_listings(batch: list[dict]) -> None:
         db.listings.bulk_write([ReplaceOne({"_id": l["id"]}, {"_id": l["id"], **l}, upsert=True) for l in batch])
 
-    def on_batch(items: list[dict]) -> None:
-        batch = build(token, items)
-        save_listings(batch)
-        raw.extend(items)
-        listings.extend(batch)
-        print(f"-> {len(batch)} listings saved to MongoDB ({len(listings)}/{args.count})")
-        if enrich:
-            enrich(token, batch, save_listings)
+    def enrich_and_save(l: dict) -> None:
+        enrich_one(token, l)
+        save_listings([l])
 
-    def save_state(s: dict) -> None:
-        db.scrape_state.replace_one({"_id": state_id}, {"_id": state_id, **s}, upsert=True)
+    # enough workers to keep every gate slot busy; GATE decides how many actually run
+    with ThreadPoolExecutor(max_workers=Gate.SLOTS) as background:
+        pending = []
 
-    exhausted = collect(lambda page, cap: fetch(token, page, cap),
-                        lambda it: f"{marketplace}-{external_id(it)}",
-                        seen, state, args.count, page_size, on_batch, save_state)
-    if exhausted:
-        print(f"\nsearch ran out of new {marketplace} results after {len(listings)} new listings")
+        def on_batch(items: list[dict]) -> None:
+            batch = build(token, items)
+            save_listings(batch)
+            raw.extend(items)
+            listings.extend(batch)
+            print(f"-> {len(batch)} {marketplace} listings saved to MongoDB ({len(listings)}/{count})")
+            if enrich_one:
+                pending.extend(background.submit(enrich_and_save, l) for l in batch)
+
+        def save_state(s: dict) -> None:
+            db.scrape_state.replace_one({"_id": state_id}, {"_id": state_id, **s}, upsert=True)
+
+        exhausted = collect(lambda page, cap: fetch(token, page, cap),
+                            lambda it: f"{marketplace}-{external_id(it)}",
+                            seen, state, count, page_size, on_batch, save_state)
+        if exhausted:
+            print(f"\nsearch ran out of new {marketplace} results after {len(listings)} new listings")
+        for f in pending:
+            f.result()  # surface errors from the background work
     save(marketplace, raw, listings)
 
 
@@ -313,4 +412,33 @@ if __name__ == "__main__":
 
     go, got, _ = fake([["r1", "r2"]] * 50, 2)  # a search that keeps serving the same results
     assert go(10) is True and got[-1] == ["r1", "r2"]
+
+    # Gate: 5 scalable runs fill 16 GB as 4+4+4+2+2, a fixed eBay run takes exactly its size
+    from contextlib import ExitStack
+    gate = Gate()
+    with ExitStack() as stack:
+        sizes = [stack.enter_context(gate.run(1024)) for _ in range(5)]
+    assert sizes == [4096, 4096, 4096, 2048, 2048] and sum(sizes) == Gate.MEMORY_MB, sizes
+    with ExitStack() as stack:
+        sizes = [stack.enter_context(gate.run(128, scale=False))] + [stack.enter_context(gate.run(512)) for _ in range(4)]
+    assert sizes == [128, 4096, 4096, 4096, 2048] and sum(sizes) <= Gate.MEMORY_MB, sizes
+
+    # Gate: when full, a waiting search page (priority 0) goes before a waiting review (priority 1)
+    order, held = [], ExitStack()
+    for _ in range(Gate.SLOTS):
+        held.enter_context(gate.run(1024))
+
+    def wait_for_slot(name: str, priority: int) -> None:
+        with gate.run(1024, priority=priority):
+            order.append(name)
+    review = threading.Thread(target=wait_for_slot, args=("review", 1))
+    review.start()
+    time.sleep(0.1)
+    page = threading.Thread(target=wait_for_slot, args=("page", 0))
+    page.start()
+    time.sleep(0.1)
+    held.close()  # free all slots: both proceed, the page first
+    review.join()
+    page.join()
+    assert order == ["page", "review"], order
     print("ok")
