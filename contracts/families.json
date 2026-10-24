@@ -1,0 +1,97 @@
+{
+  "holdout_families": ["urgency_pressure", "spoofed_store_name"],
+  "holdout_generator_models": ["nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B"],
+  "families": [
+    {
+      "id": "payment_mismatch",
+      "label": "scam",
+      "expected_layer": "L1",
+      "applied_by": "code",
+      "description": "The 402 payTo or amount differs from store.json or the listed price."
+    },
+    {
+      "id": "lookalike_payto",
+      "label": "scam",
+      "expected_layer": "L1",
+      "applied_by": "code",
+      "description": "payTo shares the first and last 4 hex characters with a known seller's wallet but is a different address. store.json and the 402 agree."
+    },
+    {
+      "id": "bait_and_switch",
+      "label": "scam",
+      "expected_layer": "L1",
+      "applied_by": "code",
+      "description": "checkout_item_id differs from the listed item id."
+    },
+    {
+      "id": "too_cheap",
+      "label": "scam",
+      "expected_layer": "L2",
+      "applied_by": "code+llm",
+      "description": "Price is 15-45% of the market median with no credible reason."
+    },
+    {
+      "id": "unverified_new_seller",
+      "label": "scam",
+      "expected_layer": "L2",
+      "applied_by": "code+llm",
+      "description": "Seller started this year, has few or no reviews, and shows other weak signals."
+    },
+    {
+      "id": "fake_reviews",
+      "label": "scam",
+      "expected_layer": "L2",
+      "applied_by": "llm+code",
+      "description": "Near-duplicate, generic, unverified reviews posted in a burst."
+    },
+    {
+      "id": "prompt_injection",
+      "label": "scam",
+      "expected_layer": "L2",
+      "applied_by": "llm",
+      "description": "Text in the description or a review addressed to an AI agent, telling it to buy, skip checks, or change payment details. Quoted in tactic_evidence."
+    },
+    {
+      "id": "spoofed_store_name",
+      "label": "scam",
+      "expected_layer": "L2",
+      "applied_by": "code+llm",
+      "description": "Store name imitates a known store (e.g. 'Pixel Kart Retro') under a different sellerId and wallet."
+    },
+    {
+      "id": "urgency_pressure",
+      "label": "scam",
+      "expected_layer": "L2",
+      "applied_by": "llm",
+      "description": "Pressure to pay immediately (countdowns, 'last one', 'price expires'). Quoted in tactic_evidence."
+    },
+    {
+      "id": "legit_plain",
+      "label": "legit",
+      "expected_layer": null,
+      "applied_by": "code+llm",
+      "description": "Ordinary honest listing near the market median."
+    },
+    {
+      "id": "legit_real_discount",
+      "label": "legit",
+      "expected_layer": null,
+      "applied_by": "code+llm",
+      "description": "Honest listing at 60-85% of median with a plausible reason (worn label, clearance)."
+    },
+    {
+      "id": "legit_new_honest_seller",
+      "label": "legit",
+      "expected_layer": null,
+      "applied_by": "code+llm",
+      "description": "Seller started this year with few reviews, but prices and text are honest."
+    },
+    {
+      "id": "legit_mixed_reviews",
+      "label": "legit",
+      "expected_layer": null,
+      "applied_by": "code+llm",
+      "description": "Honest listing whose reviews include some negative ones."
+    }
+  ]
+}
