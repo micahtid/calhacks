@@ -1,72 +1,93 @@
-"""Stand-in for gate-train / gate-eval until feat/gate is merged. Same inputs, same JSON (contracts/interfaces.md).
+"""Stand-in for the real Gate until feat/gate is merged. Same inputs and outputs as contracts/interfaces.md:
+train -> {"model_id", "round", "kind", "features", "n_train", "n_val", "threshold", "val": RoundMetrics};
+evaluate -> {"model_id", "metrics": RoundMetrics, "rows"?: [{..., "decision": GateDecision}]}.
 
-A tiny logistic regression over six hand-written features plus an emulated Layer 1, so the MCP tools and the
-coordinator loop produce realistic, deterministic numbers. It ignores gate/features/*, so coordinator edits have no
-effect until the real gate is wired in.
+Layer 1 follows the interfaces.md rule table. Layer 2 is a small logistic regression over eight hand-written features
+of the GateInput (never the answer key). It ignores gate/features/*, so coordinator edits have no effect on it.
 """
+import difflib
 import hashlib
 import json
 import math
 import re
-from collections import defaultdict
-from datetime import datetime, timezone
-from pathlib import Path
+import unicodedata
+from datetime import date
 
-from redteam.config import MAX_FPR, MODELS_DIR, contract
-from redteam.splits import iter_rows
+from calhacks_contracts import AnswerKey, Case, Check, GateDecision, GateInput, Listing, Reason
+from calhacks_contracts.db import ReferenceSet
+from calhacks_contracts.families import allowlist, holdout_families, injection_patterns
+from calhacks_contracts.splits import split_of
 
-FEATURES = ["price_ratio", "seller_age_years", "injection_hits", "review_dup_max", "unverified_frac", "urgency_hits"]
-MONOTONE = [-1, -1, 1, 1, 1, 1]
-URGENCY = re.compile(r"\b(hurry|immediately|right away|expires?|last (one|unit)|only 1 left|ends in|act now|"
-                     r"before it.?s gone|checking out)\b", re.I)
+from redteam import scoring, store
+from redteam.config import MAX_FPR, MODELS_DIR
+
+TODAY = date(2026, 10, 24)
+FEATURES = ["price_ratio", "known_wallet", "crs_age_days", "wallet_age_days", "injection_hits", "hidden_chars",
+            "review_dup_max", "domain_sim"]
+MONOTONE = [-1, -1, -1, -1, 1, 1, 1, 1]
 
 
-def _patterns():
-    return [re.compile(p, re.I) for p in contract("injection_patterns.json")["patterns"]]
+# ---------- Layer 1 ----------
+def layer1(x: GateInput) -> list[Check]:
+    a, l, m, refs = allowlist(), x.listing, x.mandate, x.references
+    known = {k.pay_to.lower() for k in refs.known_sellers}
+    is_known = l.checkout.pay_to.lower() in known
+    crs_ok = bool(refs.crs_result and refs.crs_result.verified)
+    t = l.checkout.max_timeout_seconds
+    rows = [
+        ("L1_PAYTO_MISMATCH", l.checkout.pay_to.lower() == l.seller.pay_to.lower()),
+        ("L1_SELLER_UNTRUSTED", is_known or crs_ok),
+        ("L1_UNKNOWN_SELLER_CAP", is_known or l.item.price <= a["unknown_seller_cap_usd"]),
+        ("L1_AMOUNT_MISMATCH", int(l.checkout.amount) == round(l.item.price * 10 ** a["usdc_decimals"])),
+        ("L1_OVER_MAX", l.item.price <= m.max_price),
+        ("L1_OVER_BUDGET", l.item.price <= m.spend_remaining),
+        ("L1_NETWORK", l.checkout.network in a["networks"]),
+        ("L1_ASSET", l.checkout.asset.lower() == a["assets"].get(l.checkout.network, "").lower()),
+        ("L1_ITEM_MISMATCH", l.checkout.item_id == l.item.id),
+        ("L1_PRODUCT_MISMATCH", l.item.product_key == m.product_key),
+        ("L1_TIMEOUT", t is None or t <= a["max_timeout_s"]),
+    ]
+    return [Check(rule=r, passed=ok) for r, ok in rows]
 
 
-def _tokens(s):
+# ---------- Layer 2 features ----------
+def _days(d: str | None, default: float) -> float:
+    if not d:
+        return default
+    try:
+        return float((TODAY - date.fromisoformat(d[:10])).days)
+    except ValueError:
+        return default
+
+
+def _tokens(s: str) -> set[str]:
     return set(re.findall(r"[a-z]+", s.lower()))
 
 
-def featurize(s: dict) -> list[float]:
-    med = contract("market_medians.json")["medians"].get(s["item"]["id"]) or s["item"]["priceUsd"]
-    text = s["item"]["description"] + " " + " ".join(r["body"] for r in s["reviews"])
-    bodies = [_tokens(r["body"]) for r in s["reviews"]]
+def featurize(x: GateInput) -> list[float]:
+    l, refs = x.listing, x.references
+    text = l.item.text + " " + " ".join(l.reviews)
+    norm = unicodedata.normalize("NFKC", text)
+    pats = [re.compile(p, re.I) for p in injection_patterns()["patterns"]]
+    zw = set(injection_patterns()["zero_width_chars"])
+    mixed = sum(1 for w in norm.split() if re.search(r"[a-zA-Z]", w) and re.search(r"[Ѐ-ӿ]", w))
+    bodies = [_tokens(r) for r in l.reviews]
     dup = max((len(a & b) / max(1, len(a | b)) for i, a in enumerate(bodies) for b in bodies[i + 1:]), default=0.0)
-    unverified = sum(not r["verifiedPurchase"] for r in s["reviews"]) / max(1, len(s["reviews"]))
-    return [s["item"]["priceUsd"] / med, float(2026 - s["store"]["sellingSince"]),
-            float(sum(bool(p.search(text)) for p in _patterns())), dup, unverified, float(len(URGENCY.findall(text)))]
-
-
-def layer1(s: dict) -> list[str]:
-    allow, known = contract("allowlist.json"), contract("known_sellers.json")["sellers"]
-    pr, st, out = s["payment_required"], s["store"], []
-    if pr["payTo"].lower() != st["payTo"].lower():
-        out.append("L1_PAYTO_MISMATCH")
-    p = pr["payTo"].lower()
-    for k in known:
-        kp = k["payTo"].lower()
-        if p != kp and p[2:6] == kp[2:6] and p[-4:] == kp[-4:]:
-            out.append("L1_PAYTO_LOOKALIKE")
-            break
-    if int(pr["amount"]) != round(s["item"]["priceUsd"] * 10 ** allow["usdc_decimals"]):
-        out.append("L1_AMOUNT_MISMATCH")
-    if s["item"]["priceUsd"] > s["mandate"]["max_price_usd"]:
-        out.append("L1_OVER_MAX")
-    if s["item"]["priceUsd"] > s["mandate"]["budget_remaining_usd"]:
-        out.append("L1_OVER_BUDGET")
-    if pr["network"] not in allow["networks"]:
-        out.append("L1_NETWORK")
-    if pr["asset"].lower() != allow["assets"].get(pr["network"], "").lower():
-        out.append("L1_ASSET")
-    if pr["scheme"] not in allow["schemes"]:
-        out.append("L1_SCHEME")
-    if pr["maxTimeoutSeconds"] > allow["max_timeout_s"]:
-        out.append("L1_TIMEOUT")
-    if s["checkout_item_id"] != s["item"]["id"]:
-        out.append("L1_ITEM_MISMATCH")
-    return out
+    known = {k.pay_to.lower() for k in refs.known_sellers}
+    domains = [k.domain for k in refs.known_sellers if k.domain != l.seller.domain]
+    dsim = max((difflib.SequenceMatcher(None, l.seller.domain, d).ratio() for d in domains), default=0.0)
+    crs_age = 3650.0 if l.checkout.pay_to.lower() in known else (
+        _days(refs.crs_result.verified_at, 0.0) if refs.crs_result and refs.crs_result.verified else 0.0)
+    return [
+        l.item.price / refs.market_median if refs.market_median else 1.0,
+        float(l.checkout.pay_to.lower() in known),
+        min(crs_age, 3650.0),
+        min(_days(refs.pay_to_first_seen, 0.0), 3650.0),
+        float(sum(bool(p.search(norm)) for p in pats)),
+        float(sum(text.count(c) for c in zw) + mixed),
+        dup,
+        dsim,
+    ]
 
 
 def _sigmoid(z):
@@ -74,8 +95,9 @@ def _sigmoid(z):
 
 
 def _fit(X, y, epochs=400, lr=0.3):
-    mu = [sum(c) / len(c) for c in zip(*X)]
-    sd = [max(1e-6, (sum((v - m) ** 2 for v in c) / len(c)) ** 0.5) for c, m in zip(zip(*X), mu)]
+    cols = list(zip(*X))
+    mu = [sum(c) / len(c) for c in cols]
+    sd = [max(1e-6, (sum((v - m) ** 2 for v in c) / len(c)) ** 0.5) for c, m in zip(cols, mu)]
     Z = [[(v - m) / d for v, m, d in zip(x, mu, sd)] for x in X]
     w, b = [0.0] * len(mu), 0.0
     for _ in range(epochs):
@@ -86,8 +108,7 @@ def _fit(X, y, epochs=400, lr=0.3):
             gb += e
         w = [a - lr * g / len(Z) for a, g in zip(w, gw)]
         b -= lr * gb / len(Z)
-    # Monotone constraints: zero out any weight pointing the wrong way.
-    w = [0.0 if m and a * m < 0 else a for a, m in zip(w, MONOTONE)]
+    w = [0.0 if mo and a * mo < 0 else a for a, mo in zip(w, MONOTONE)]  # monotone constraints
     return {"mu": mu, "sd": sd, "w": w, "b": b}
 
 
@@ -97,69 +118,88 @@ def _score(coef, x):
     return _sigmoid(sum(contrib) + coef["b"]), contrib
 
 
-def _load(model_id: str) -> dict:
+def decide(model: dict, x: GateInput) -> GateDecision:
+    checks = layer1(x)
+    failed = next((c.rule for c in checks if not c.passed), None)
+    if failed:
+        return GateDecision(decision="skip", decided_by="layer1", failed_rule=failed, model_version=model["model_id"],
+                            checks=checks)
+    feats = featurize(x)
+    risk, contrib = _score(model["coef"], feats)
+    top = sorted(zip(FEATURES, feats, contrib), key=lambda t: -t[2])[:3]
+    skip = risk >= model["threshold"]
+    return GateDecision(decision="skip" if skip else "buy", decided_by="layer2" if skip else None,
+                        risk_score=round(risk, 4), threshold=model["threshold"],
+                        top_reasons=[Reason(feature=f, value=round(v, 4), contribution=round(c, 4)) for f, v, c in top],
+                        model_version=model["model_id"], checks=checks)
+
+
+# ---------- train / evaluate ----------
+def gate_input(listing: Listing, case: Case, refs: ReferenceSet) -> GateInput:
+    return GateInput(mandate=case.mandate, listing=listing, references=refs.for_listing(listing))
+
+
+def _row(model, item, refs) -> dict:
+    listing, case, key = item
+    d = decide(model, gate_input(listing, case, refs))
+    return {"listing_id": listing.listing_id, "label": key.label, "family": key.family,
+            "attacker_knowledge": key.attacker_knowledge, "decision": d.model_dump(mode="json")}
+
+
+def load(model_id: str) -> dict:
     if model_id == "promoted":
         model_id = json.loads((MODELS_DIR / "promoted.json").read_text())["model_id"]
     return json.loads((MODELS_DIR / f"{model_id}.json").read_text())
 
 
-def _decide(model, s):
-    fails = layer1(s)
-    risk, contrib = _score(model["coef"], featurize(s))
-    x = featurize(s)
-    top3 = sorted(([f, round(v, 4), round(c, 4)] for f, v, c in zip(FEATURES, x, contrib)), key=lambda t: -t[2])[:3]
-    layer = "L1" if fails else ("L2" if risk >= model["threshold"] else None)
-    return {"id": s["id"], "family": s["family"], "label": s["label"], "decision": "skip" if layer else "buy",
-            "layer": layer, "risk": round(risk, 4), "top3": top3, "l1_failures": fails}
+def train(round_: int) -> dict:
+    r = store.repo()
+    refs = r.reference_snapshot()
+    ids = store.listing_ids(r, rounds=range(0, round_ + 1))
+    its = [it for it in store.items(r, ids) if it[2].family not in holdout_families()]
+    tr = [it for it in its if split_of(it[0].listing_id) == "train"]
+    va = [it for it in its if split_of(it[0].listing_id) == "val"]
+    if not tr or not va or len({it[2].label for it in tr}) < 2:
+        return {"error": f"need train and val rows with both labels (train={len(tr)}, val={len(va)})"}
+    X = [featurize(gate_input(l, c, refs)) for l, c, _ in tr]
+    coef = _fit(X, [1 if k.label == "scam" else 0 for _, _, k in tr])
+    # threshold: lowest cut whose Layer-2 false-block rate on val legit rows (that pass Layer 1) stays <= MAX_FPR
+    legit_risks = sorted((_score(coef, featurize(gi))[0] for l, c, k in va if k.label == "legit"
+                          for gi in [gate_input(l, c, refs)] if all(ch.passed for ch in layer1(gi))), reverse=True)
+    allowed = int(MAX_FPR * len(legit_risks))
+    threshold = round(legit_risks[allowed] + 1e-6, 6) if len(legit_risks) > allowed else 0.5
+    data_hash = hashlib.sha256("".join(sorted(l.listing_id for l, _, _ in tr)).encode()).hexdigest()[:12]
+    model_id = f"r{round_}-stub-{data_hash[:6]}"
+    model = {"model_id": model_id, "round": round_, "kind": "stub", "features": FEATURES, "monotone": MONOTONE,
+             "threshold": threshold, "coef": coef, "train_data_hash": data_hash, "feature_code_hash": "stub"}
+    val = scoring.metrics([_row(model, it, refs) for it in va]).model_dump(mode="json")
+    model["val_metrics"] = val
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    (MODELS_DIR / f"{model_id}.json").write_text(json.dumps(model, indent=1))
+    return {"model_id": model_id, "round": round_, "kind": "stub", "features": FEATURES, "n_train": len(tr),
+            "n_val": len(va), "threshold": threshold, "val": val}
 
 
-def metrics(rows: list[dict], with_rows: bool = False) -> dict:
-    scam = [r for r in rows if r["label"] == "scam"]
-    legit = [r for r in rows if r["label"] == "legit"]
-    l2_scam = [r for r in scam if r["layer"] != "L1"]
-    l2_legit = [r for r in legit if r["layer"] != "L1"]
-    skip = lambda rs: sum(r["decision"] == "skip" for r in rs)
-    rate = lambda rs: round(skip(rs) / len(rs), 4) if rs else 0.0
-    fam = defaultdict(list)
-    for r in rows:
-        fam[r["family"]].append(r)
-    per_family = {f: ({"n": len(rs), "recall": rate(rs)} if rs[0]["label"] == "scam" else {"n": len(rs), "fpr": rate(rs)})
-                  for f, rs in sorted(fam.items())}
-    out = {"n": len(rows), "n_scam": len(scam), "n_legit": len(legit), "recall": rate(scam), "fpr": rate(legit),
-           "recall_l2": rate(l2_scam), "fpr_l2": rate(l2_legit), "l1_catches": sum(r["layer"] == "L1" for r in rows),
-           "per_family": per_family}
-    if with_rows:
-        out["rows"] = [{k: r[k] for k in ("id", "family", "label", "decision", "layer", "risk", "top3")} for r in rows]
+def evaluate_items(model_id: str, its: list[tuple[Listing, Case, AnswerKey]], refs: ReferenceSet,
+                   rows: bool = False) -> dict:
+    try:
+        model = load(model_id)
+    except FileNotFoundError:
+        return {"error": f"unknown model {model_id!r}"}
+    out_rows = [_row(model, it, refs) for it in its]
+    out = {"model_id": model["model_id"], "metrics": scoring.metrics(out_rows).model_dump(mode="json")}
+    if rows:
+        out["rows"] = out_rows
     return out
 
 
-def train(paths: list[Path], round_: int) -> dict:
-    train_rows = list(iter_rows(paths, "train"))
-    val_rows = list(iter_rows(paths, "val"))
-    if not train_rows or not val_rows:
-        return {"error": "need train and val rows"}
-    X = [featurize(s) for s in train_rows]
-    coef = _fit(X, [1 if s["label"] == "scam" else 0 for s in train_rows])
-    # Threshold: lowest cut whose L2-only val FPR stays within MAX_FPR.
-    legit_risks = sorted((_score(coef, featurize(s))[0] for s in val_rows if s["label"] == "legit" and not layer1(s)),
-                         reverse=True)
-    allowed = int(MAX_FPR * len(legit_risks))
-    threshold = round(legit_risks[allowed] + 1e-6, 6) if len(legit_risks) > allowed else 0.5
-    data_hash = hashlib.sha256("".join(sorted(s["id"] for s in train_rows)).encode()).hexdigest()[:12]
-    model_id = f"r{round_}-stub-{data_hash[:6]}"
-    model = {"model_id": model_id, "round": round_, "kind": "stub", "features": FEATURES, "monotone": MONOTONE,
-             "threshold": threshold, "booster": None, "coef": coef, "train_data_hash": data_hash,
-             "feature_code_hash": "stub", "created_at": datetime.now(timezone.utc).isoformat()}
-    model["val_metrics"] = metrics([_decide(model, s) for s in val_rows])
-    MODELS_DIR.mkdir(parents=True, exist_ok=True)
-    (MODELS_DIR / f"{model_id}.json").write_text(json.dumps(model, indent=1))
-    return {"model_id": model_id, "round": round_, "kind": "stub", "features": FEATURES, "n_train": len(train_rows),
-            "n_val": len(val_rows), "threshold": threshold, "val": model["val_metrics"]}
+def evaluate(model_id: str, split: str = "all", ids: list[str] | None = None, rows: bool = False) -> dict:
+    r = store.repo()
+    ids = ids if ids is not None else store.listing_ids(r, split=split)
+    ids = [i for i in ids if split == "all" or split_of(i) == split]
+    return evaluate_items(model_id, store.items(r, ids), r.reference_snapshot(), rows)
 
 
-def evaluate(model_id: str, paths: list[Path], split: str = "all", rows: bool = False) -> dict:
-    try:
-        model = _load(model_id)
-    except FileNotFoundError:
-        return {"error": f"unknown model {model_id!r}"}
-    return metrics([_decide(model, s) for s in iter_rows(paths, split)], with_rows=rows)
+def features() -> list[str]:
+    return list(FEATURES)
+
