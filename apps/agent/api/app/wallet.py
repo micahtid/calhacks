@@ -16,8 +16,8 @@ from app.pay import EXPLORER, UNIT, USDC
 RPC = "https://sepolia.base.org"
 BLOCKSCOUT = "https://base-sepolia.blockscout.com/api/v2"
 ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
-BALANCE_OF = "0x70a08231"  # balanceOf(address)
-MAX_PAGES = 5  # 50 transfers a page
+BALANCE_OF = "0x70a08231"  # balanceOf(address).
+MAX_PAGES = 5  # 50 transfers a page.
 
 
 async def balance(client: httpx.AsyncClient, address: str) -> float:
@@ -53,7 +53,7 @@ async def transfers(client: httpx.AsyncClient, address: str) -> list[dict]:
 
 async def fund(address: str) -> dict:
     """Asks the CDP faucet for test USDC to `address`. Returns the faucet's transaction."""
-    from cdp import CdpClient  # imported here so the rest of the API runs without CDP credentials
+    from cdp import CdpClient  # Imported here so the rest of the API runs without CDP credentials.
 
     async with CdpClient() as cdp:
         tx = await cdp.evm.request_faucet(address=address, network="base-sepolia", token="usdc")

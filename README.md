@@ -171,12 +171,28 @@ Browser (Vercel)  <- SSE -  agent API (Railway, FastAPI)  <- NDJSON -  store-cra
 | `NEXT_PUBLIC_AGENT_API_URL` | agent web | Agent API origin, inlined at build time (default `http://localhost:8000`) |
 | `BUYER_PRIVATE_KEY` | agent API | Hunter's wallet key; signs x402 payments in `app/pay.py`. Unset: runs stop before paying |
 | `SHIP_TO_NAME`, `SHIP_TO_ADDRESS` | agent API | Optional ship-to sent at checkout (default a demo address; nothing ships) |
+| `MONGODB_URI` | agent API | MongoDB Atlas, for saved chats (`app/chats.py`). Unset: chats are not saved |
 | `CDP_API_KEY_ID`, `CDP_API_KEY_SECRET`, `CDP_WALLET_SECRET` | agent API | Coinbase Developer Platform keys for the faucet behind Add Funds (`app/wallet.py`). Unset: only Add Funds fails |
 
 Locally the agent API reads `apps/agent/api/.env` and the web app `apps/agent/web/.env.local`; both have a
 `.env.example`. The API depends on `contracts/` (`calhacks-contracts`, a uv path dependency like in `gate/` and
 `redteam/`), so Railway builds it from the repo root: root directory `/`, config file `apps/agent/api/railway.json`,
 which builds `apps/agent/api/Dockerfile` and redeploys on changes under `apps/agent/api/` or `contracts/`.
+
+## Saved chats
+
+Finished chats are saved in MongoDB (`app/chats.py`): database `agent`, collection `chats`, one document per chat
+(`_id`, `owner`, `title`, `prompt`, `status`, `run`, `updatedAt`), indexed on `owner` and `updatedAt`.
+
+- There are no accounts yet, so each browser makes a random owner id (`hunter-owner` in localStorage,
+  `apps/agent/web/lib/chats.ts`) and the API only lists, saves and deletes that owner's chats.
+- `GET /chats?owner=` lists them, newest first (up to 100). `PUT /chats/{id}` saves a chat when its run finishes
+  (`run` is the run as the UI last showed it, so it reopens exactly as it ended); a chat id that belongs to another
+  owner is refused with 403. `DELETE /chats/{id}?owner=` deletes one (404 when it isn't theirs).
+- Only finished chats are saved, so reloading the page never starts a purchase again.
+- In the sidebar, a delete button appears on a chat when you hover it (always shown on touch screens). Deleting the
+  open chat goes back to New Chat, and a failed delete puts the chat back.
+- Self-check: `uv run python -m app.chats` (from `apps/agent/api`, uses a throwaway database).
 
 ## Wallet (Settings and Transactions)
 
@@ -200,14 +216,34 @@ A new chat in the agent web app is one live run: the browser opens `GET /chat?pr
 OpenAI-compatible at `https://api-inference.bitdeer.ai/v1`); it never touches money.
 
 1. **Understand** (`app/scout.py`): the model reads the request and returns JSON with `item`, `query` (1-3 title
-   words), `max_price` and 2-4 `thoughts`, all validated in code. Sent as `thought` and `instruction` events.
+   words), `max_price`, `gender` (men|women|null), `size` and 2-4 `thoughts`, all validated in code. Sent as
+   `thought` and `instruction` events.
+   - **Clarifying questions:** when a detail that changes which listings fit is missing, the model returns a
+     `question` with 2-5 options instead, and the run waits for the answer before searching: for clothing, men's or
+     women's first, then the size. Never price, never something already said, one at a time, at most 2. Items that
+     aren't worn get none. The answer goes back to the model, which can settle both at once ("for my girlfriend, she
+     wears a small").
+   - **Why these two:** search words match anywhere in a title, so gender can't go in the query ("men" matches
+     "women"). Code filters instead (`scout.fits`): it drops titles only for the other gender (whole words, so
+     "Men Women" unisex titles stay) and titles that state only other sizes (`scout.sizes` reads "Size L",
+     "sz S M L XL", "Mens Medium", "(Medium)", "2X-Large", ranges as every size; titles with no size stay). Measured
+     on the 617 hosted titles: the gender answer removes 23-50% of a search's results, and 182 titles state a size.
+     With either filter on, the actor is asked for 50 listings per store instead of 25.
 2. **Search and check:** the live search above with that query and limit, 25 listings per store, and a mock Gate
    `verdict` per listing. If a query finds nothing, it is retried with its first word dropped ("warm fleece jacket",
    then "fleece jacket", then "jacket"), with a `search` event per query. Page text stays on the server for the Scout.
-3. **Pick:** the model ranks up to 30 of the cheapest Gate-approved listings and returns up to 3 picks with a
-   one-line note. Listing text is passed as untrusted data, and a pick that doesn't name an offered listing is dropped.
-   If the model fails or names nothing usable, the 3 cheapest approved listings are picked in code.
-4. **Pay** (`app/pay.py`): the best pick is bought over x402 in the six steps the UI lists, each sent as a
+   Listings over the limit or filtered out above never reach the feed.
+3. **Narrow:** with 4 or more approved listings, the model looks at up to 60 of the cheapest and may ask which
+   direction to take when they split into 2-4 clearly different groups (brand, style, type). Each option names the
+   listings it keeps, and code drops options that keep nothing or everything. The UI shows each option's count plus
+   **No Preference**. Choosing an option keeps only its listings (`narrow {kept, total}`); No Preference or a typed
+   answer keeps them all and goes to the pick as a preference. Measured: "warm fleece jacket under $50" (men's, M)
+   split 63 safe listings into classic brand fleece 37, sherpa 6, tactical 13.
+4. **Pick:** the model ranks up to 30 of the cheapest remaining listings with the request and every answer, and
+   returns up to 3 picks with a one-line note, leaving out stated other sizes and genders. Listing text is passed as
+   untrusted data, and a pick that doesn't name an offered listing is dropped. If the model fails or names nothing
+   usable, the 3 cheapest approved listings are picked in code.
+5. **Pay** (`app/pay.py`): the best pick is bought over x402 in the six steps the UI lists, each sent as a
    `checkout {step, state, detail}` event: start checkout (POST with a ship-to, the store answers 402), read the price
    and wallet from `PAYMENT-REQUIRED`, double-check in code (network and asset as in
    `contracts/allowlist.json`, amount equals the listed price, `payTo` equals the store.json wallet, within the
@@ -218,12 +254,23 @@ OpenAI-compatible at `https://api-inference.bitdeer.ai/v1`); it never touches mo
    nothing is signed. A failed check stops before signing.
    - Verified without paying: all four stores answer a correct v2 402, and a payload signed by `app/pay.py` with an
      unfunded key was rejected by the x402.org facilitator's `/verify` only for insufficient USDC balance.
-5. **End:** `end` with `status: bought`, `ready` (everything checked, no wallet key) or `stopped`.
+6. **End:** `end` with `status: bought`, `ready` (everything checked, no wallet key) or `stopped`.
 
-- **Reasoning:** GLM-5.3-Flash streams its thinking as `reasoning_content`. The agent API forwards it as
-  `reasoning {stage: understand|pick, text}` events, and the UI shows it under a "Show Reasoning" toggle in the
-  Understanding and Picking stages, collapsed by default. Reasoning counts against `max_tokens`, so calls allow 6000
-  (at 600 the answer came back empty).
+- **Answering:** a run opens with `run {id}`. A question is `question {stage: understand|pick, text, options,
+  counts?, images?}`; the browser sends the answer to `POST /chat/{id}/answer` with `{"text": "..."}`, and the stream echoes it
+  as `answer {stage, question, text}` before going on. While it waits the stream sends a `ping` every 15s so proxies
+  keep it open, and after 15 minutes without an answer it ends with an `error`. Waiting runs live in the API
+  process's memory, so the API must run as a single instance. The chat badge reads "Needs Your Answer" meanwhile.
+- **Question card:** like Claude's question picker, a column of numbered options in Title Case with "Something
+  Else..." as the last row for typing your own answer. A number key picks that option. Narrowing options also show
+  how many listings each keeps and a photo of one of them: the first photo on that listing's page that no other safe
+  listing's page shows (item pages also show related items and banners). Rows without a photo show a no-image icon.
+- **Reasoning:** GLM-5.3-Flash streams its thinking as `reasoning_content`, which is long working notes ("Max
+  price: null"). `app/llm.py` splits it into sentences as they complete and forwards only short plain ones as
+  `reasoning {stage: understand|pick, text}` events, speaking to the user ("The user wants" becomes "You want").
+  The UI shows just the latest sentence in the active stage, each one replacing the last. Asking for brief thinking
+  or for no thinking did not shorten it (measured 650-2000 characters either way). Reasoning counts against
+  `max_tokens`, so calls allow 6000 (at 600 the answer came back empty).
 - **UI** (`apps/agent/web`): the same stages, summaries and receipt as the scripted demo it replaced
   ("192 Safe · 59 Scams Blocked", "mzn · 8.50 USDC", "Paid 8.50 USDC"), filled from the stream. Found listings
   join the feed one every 55ms and are checked one every 70ms (checking starts once every found listing is on screen),
@@ -366,10 +413,13 @@ Keep this section current (see `AGENTS.md`).
 - [ ] Apify listing ingestion
 - [x] Live store search: store-crawler Apify Standby Actor streaming listings and item pages, relayed as SSE by the agent API (`GET /search`)
 - [x] Mock Gate verdicts in the search stream (`GateDecision` shape, `model_version: "mock"`), standing in for the real Gate
+- [x] Saved chats in MongoDB (`agent.chats`) per browser, with delete in the sidebar
 - [x] Wallet in the agent web app: live USDC balance and Add Funds (CDP faucet) in Settings, real Base Sepolia transfers in Transactions
 - [x] Agent web chat runs live from `GET /chat` in the demo's design (editable prompt, live feed and checks, picks, collapsed reasoning, checkout steps, receipt)
-- [x] x402 checkout in the agent API (`app/pay.py`): real 402, double-check, EIP-3009 signing, settlement; `BUYER_PRIVATE_KEY` is the demo wallet (`0x7D06…Cea8`, also in `apps/agent/web/lib/wallet.ts`), which needs more faucet USDC before it can pay
+- [x] x402 checkout in the agent API (`app/pay.py`): real 402, double-check, EIP-3009 signing, settlement; `BUYER_PRIVATE_KEY` is the demo wallet (`0x7D06…Cea8`, also in `apps/agent/web/lib/wallet.ts`)
+- [x] Demo refunds (`app/refund.py`): after each purchase the store wallet sends the payment back through the x402.org facilitator (no gas needed), using `STORE_WALLET_PRIVATE_KEY`; the Transactions page lists only payments
 - [x] Scout on Bitdeer GLM-5.3-Flash: reads the request, ranks Gate-approved listings, streams its reasoning (`GET /chat`)
+- [x] Clarifying questions: men's/women's and size before searching (filtered in code), a narrowing question with per-option counts before picking (`POST /chat/{id}/answer`)
 - [x] Gate Layer 1: fixed TypeScript rules over the issue #1 `GateInput`
 - [x] Gate Layer 2: LightGBM risk model trained and evaluated on MongoDB data, `POST /gate/risk`
 - [ ] Wallet signer + x402 payment against Base Sepolia

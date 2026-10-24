@@ -3,11 +3,12 @@ import { ArrowUpRightIcon } from "./Icons";
 
 const when = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-// Every USDC transfer in or out of Hunter's wallet, read live from Base Sepolia.
+// Every payment Hunter made, read live from Base Sepolia. Refunds and faucet funds are left out, so the list shows
+// only what Hunter paid for.
 export function Transactions() {
   const { wallet, error } = useWallet();
-  const transfers = wallet?.transactions ?? [];
-  const spent = transfers.filter((t) => t.direction === "sent").reduce((sum, t) => sum + t.amount, 0);
+  const transfers = (wallet?.transactions ?? []).filter((t) => t.direction === "sent");
+  const spent = transfers.reduce((sum, t) => sum + t.amount, 0);
 
   return (
     <section className="ledger">
@@ -15,9 +16,10 @@ export function Transactions() {
         <h1>Transactions</h1>
         <p className="sub">
           {wallet
-            ? `${transfers.length} Transactions · ${spent.toFixed(2)} USDC Spent · ${wallet.balance.toFixed(2)} USDC Left`
+            ? `${transfers.length} Payments · ${spent.toFixed(2)} USDC Spent · ${wallet.balance.toFixed(2)} USDC Left`
             : "Base Sepolia"}
         </p>
+        <p className="note">Demo purchases are refunded.</p>
       </header>
 
       <div className="ledger-group">

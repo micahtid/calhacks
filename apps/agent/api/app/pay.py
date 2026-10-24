@@ -27,12 +27,12 @@ from calhacks_contracts.families import allowlist
 from eth_account import Account
 
 POLICY = allowlist()
-NETWORK = POLICY["networks"][0]  # Base Sepolia
+NETWORK = POLICY["networks"][0]  # Base Sepolia.
 CHAIN_ID = int(NETWORK.split(":")[1])
-USDC = POLICY["assets"][NETWORK]  # Circle's USDC on Base Sepolia
+USDC = POLICY["assets"][NETWORK]  # Circle's USDC on Base Sepolia.
 UNIT = 10 ** POLICY["usdc_decimals"]
 EXPLORER = "https://sepolia.basescan.org"
-# ponytail: one fixed ship-to until users enter their own; nothing ships on testnet
+# ponytail: one fixed ship-to until users enter their own; nothing ships on testnet.
 SHIP_TO = {"name": os.environ.get("SHIP_TO_NAME", "Hunter Demo"),
            "address": os.environ.get("SHIP_TO_ADDRESS", "1 Market St, San Francisco, CA")}
 
@@ -149,7 +149,7 @@ async def checkout(client: httpx.AsyncClient, listing: dict, store: dict | None,
 if __name__ == "__main__":
     from eth_account.messages import encode_typed_data
 
-    key = "0x" + "11" * 32  # fixed test key, never funded
+    key = "0x" + "11" * 32  # Fixed test key, never funded.
     required = {"x402Version": 2, "resource": {"url": "https://x/api/checkout/a"}, "accepts": [{
         "scheme": "exact", "network": NETWORK, "amount": "5000000", "asset": USDC,
         "payTo": "0x45fE928DaA6A16362cd51DD25660Bf540c16c862", "maxTimeoutSeconds": POLICY["max_timeout_s"],

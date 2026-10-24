@@ -20,7 +20,7 @@ from app.search import REAL_STORES
 
 KNOWN_STORES = {urlparse(s).hostname for s in REAL_STORES}
 THRESHOLD = 0.5
-TOO_CHEAP = 0.1  # price under 10% of the search's median price
+TOO_CHEAP = 0.1  # Price under 10% of the search's median price.
 INJECTION = [re.compile(p, re.IGNORECASE) for p in injection_patterns()["patterns"]]
 
 
@@ -45,7 +45,7 @@ def decide(listing: dict, page: dict, max_price: float | None = None, median: fl
 
     hits = injection_hits(" ".join([page["text"], *page["hiddenText"]]))
     ratio = price / median if median else 1.0
-    features = [  # (feature, value, contribution to risk)
+    features = [  # (feature, value, contribution to risk).
         ("injection_hits", float(hits), 0.7 if hits else 0.0),
         ("hidden_text", float(len(page["hiddenText"])), 0.6 if page["hiddenText"] else 0.0),
         ("price_ratio", round(ratio, 3), 0.6 if ratio < TOO_CHEAP else 0.0),

@@ -198,14 +198,9 @@ svg {
   text-align: left;
 }
 
-.nav-item:hover:not(:disabled) {
+.nav-item:hover {
   background: var(--hover);
   color: var(--text);
-}
-
-.nav-item:disabled,
-.nav-item:disabled svg {
-  color: var(--text-4);
 }
 
 .nav-item.active {
@@ -224,6 +219,54 @@ svg {
   text-overflow: ellipsis;
   min-width: 0;
   flex: 1;
+}
+
+/* A chat's delete button appears on hover or keyboard focus, over the end of the row. */
+.chat-row {
+  position: relative;
+}
+
+.chat-row:hover .nav-item,
+.chat-row:focus-within .nav-item {
+  padding-right: 30px;
+}
+
+.chat-delete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  border-radius: 5px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.chat-row:hover .chat-delete,
+.chat-delete:focus-visible {
+  opacity: 1;
+}
+
+.chat-delete:hover {
+  color: var(--text);
+}
+
+.chat-row:hover .live-dot {
+  visibility: hidden;
+}
+
+/* Touch screens have no hover, so the button stays visible there. */
+@media (hover: none) {
+  .chat-delete {
+    opacity: 1;
+  }
+
+  .chat-row .nav-item {
+    padding-right: 30px;
+  }
 }
 
 .live-dot {
@@ -416,6 +459,11 @@ svg {
   background: var(--amber);
 }
 
+/* Waiting for the user to answer Hunter's question. */
+.badge.asking::before {
+  background: var(--text);
+}
+
 /* Picked a safe listing, but nothing is paid until payments are connected. */
 .badge.ready::before {
   background: transparent;
@@ -494,6 +542,13 @@ svg {
   color: var(--text-3);
   font-size: 12.5px;
   font-variant-numeric: tabular-nums;
+}
+
+.ledger-head .note {
+  margin-top: 4px;
+  color: var(--text-3);
+  font-size: 12px;
+  opacity: 0.8;
 }
 
 .ledger-group {
@@ -805,47 +860,21 @@ kbd {
   border-left: 1px solid var(--border);
 }
 
-/* Active thinking: a slow light sweep across the label, like the logo's shine. */
+/* Active thinking: a slow light sweep across the label, like the logo's shine. Each new sentence rises in. */
 .thinking {
   width: fit-content;
+  max-width: 100%;
   font-size: 12.5px;
   color: transparent;
   background: linear-gradient(90deg, var(--text-4) 0%, var(--text-4) 35%, var(--text) 50%, var(--text-4) 65%, var(--text-4) 100%);
   background-size: 250% 100%;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: shimmer 2.4s linear infinite;
+  animation: shimmer 2.4s linear infinite, rise 0.5s var(--ease) both;
 }
 
 .run .muted {
   font-size: 12.5px;
-}
-
-/* The model's raw reasoning: folded by default, and scrolls inside its box when opened. */
-.reasoning summary {
-  width: fit-content;
-  color: var(--text-3);
-  font-size: 12.5px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.reasoning summary:hover {
-  color: var(--text-2);
-}
-
-.reasoning p {
-  max-height: 220px;
-  margin-top: 8px;
-  padding: 10px 12px;
-  overflow-y: auto;
-  color: var(--text-3);
-  font-size: 12.5px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 8px;
 }
 
 .thoughts {
@@ -876,6 +905,128 @@ kbd {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
+  animation: rise 0.8s var(--ease) both;
+}
+
+/* A question Hunter is waiting on: a column of numbered options, with typing your own answer as the last row. */
+.ask {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: rise 0.8s var(--ease) both;
+}
+
+.ask-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.ask-list {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.ask-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px 0 14px;
+  color: var(--text);
+  font-size: 13.5px;
+  text-align: left;
+  transition: background 0.2s var(--ease), opacity 0.4s var(--ease);
+}
+
+.ask-row + .ask-row {
+  border-top: 1px solid var(--border);
+}
+
+button.ask-row:hover:not(:disabled) {
+  background: var(--panel);
+}
+
+.ask-row.chosen {
+  background: var(--panel);
+}
+
+.ask-row.passed {
+  opacity: 0.4;
+}
+
+.ask-key {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+}
+
+.ask-thumb {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  object-fit: cover;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.ask-thumb.empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-4);
+}
+
+.ask-label {
+  flex: 1;
+}
+
+.ask-count {
+  color: var(--text-4);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ask-input {
+  flex: 1;
+  min-width: 0;
+  height: 42px;
+  padding: 0;
+  font: inherit;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+
+.ask-input::placeholder {
+  color: var(--text-4);
+}
+
+/* The answers already given at a stage. */
+.answers {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  list-style: none;
+}
+
+.answers li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  color: var(--text);
   animation: rise 0.8s var(--ease) both;
 }
 

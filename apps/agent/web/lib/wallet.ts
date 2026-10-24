@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { API } from "./run";
+import { api } from "./api";
 
 // Hunter's agent wallet on Base Sepolia: a throwaway demo wallet that only ever holds faucet USDC. Its key is
 // BUYER_PRIVATE_KEY in the agent API, never in the browser. It is fixed until the backend issues a wallet per user.
@@ -21,13 +21,6 @@ export type Wallet = { address: string; balance: number; transactions: Transfer[
 
 export const short = (address: string) => `${address.slice(0, 6)}…${address.slice(-4)}`;
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API}/wallet/${AGENT_WALLET}${path}`, init);
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.detail ?? `The agent API answered ${res.status}.`);
-  return body as T;
-}
-
 // The wallet's live balance and transfers. `reload` reads them again, e.g. after funding.
 export function useWallet() {
   const [wallet, setWallet] = useState<Wallet>();
@@ -35,7 +28,7 @@ export function useWallet() {
 
   const reload = useCallback(
     () =>
-      call<Wallet>("")
+      api<Wallet>(`/wallet/${AGENT_WALLET}`)
         .then((w) => {
           setWallet(w);
           setError(undefined);
@@ -56,4 +49,5 @@ export function useWallet() {
 }
 
 // Asks the CDP faucet for test USDC. Resolves with the faucet's transaction once it is sent, not once it lands.
-export const fundWallet = () => call<{ txHash: string; explorer: string }>("/fund", { method: "POST" });
+export const fundWallet = () =>
+  api<{ txHash: string; explorer: string }>(`/wallet/${AGENT_WALLET}/fund`, { method: "POST" });

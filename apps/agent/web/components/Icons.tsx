@@ -71,3 +71,17 @@ export const ArrowUpRightIcon = () => (
     <path d="M4.5 11.5 11.5 4.5M5.5 4.5h6v6" />
   </Icon>
 );
+
+// A picture frame with a slash: no photo to show.
+export const NoImageIcon = () => (
+  <Icon>
+    <rect x="2.5" y="2.5" width="11" height="11" rx="2" />
+    <path d="m4.5 11 2.5-2.5 1.5 1.5 1.5-1.5 1.5 1.5M2 14 14 2" />
+  </Icon>
+);
+
+export const TrashIcon = () => (
+  <Icon size={13}>
+    <path d="M3 4.5h10M6.5 4.5V3a.5.5 0 0 1 .5-.5h2a.5.5 0 0 1 .5.5v1.5M4.5 4.5l.6 8.1a1 1 0 0 0 1 .9h3.8a1 1 0 0 0 1-.9l.6-8.1" />
+  </Icon>
+);

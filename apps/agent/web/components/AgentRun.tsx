@@ -1,8 +1,11 @@
 "use client";
 
 import { memo, useEffect, useRef, useState, type ReactNode, type Ref } from "react";
-import { API, CHECKOUT, START, advance, apply, checkoutOver, counts, type Row, type Run } from "@/lib/run";
-import { ArrowUpRightIcon, CheckIcon, ChevronIcon } from "./Icons";
+import { API } from "@/lib/api";
+import {
+  CHECKOUT, START, advance, answer, apply, checkoutOver, counts, titleCase, type Answer, type Question, type Row, type Run,
+} from "@/lib/run";
+import { ArrowUpRightIcon, CheckIcon, ChevronIcon, NoImageIcon, SendIcon } from "./Icons";
 import { Logo } from "./Logo";
 
 // Matches .feed-row in globals.css. The follow loop uses it to find the row being checked without measuring.
@@ -17,12 +20,18 @@ const CHECK_MS = 70;
 const FOLLOW_MS = 260;
 const CHECK_LEAD = (ROW_HEIGHT / CHECK_MS) * FOLLOW_MS;
 
+// How long each thinking sentence stays on screen before the next one, in milliseconds.
+const THINK_MS = 2800;
+
 // The scam check mounts rows just ahead of the one being checked instead of all at once, which avoids a long first
 // frame. Twelve rows fill the box below the centered row and its bottom fade.
 const CHECK_AHEAD = 12;
 
 // Events the run listens for on the GET /chat stream.
-const EVENTS = ["reasoning", "thought", "instruction", "listing", "verdict", "done", "pick", "checkout", "receipt", "end", "error"];
+const EVENTS = [
+  "run", "title", "reasoning", "question", "answer", "thought", "instruction", "listing", "verdict", "done", "narrow", "pick",
+  "checkout", "receipt", "end", "error",
+];
 
 const shorten = (value: string) => `${value.slice(0, 6)}…${value.slice(-4)}`;
 
@@ -30,24 +39,30 @@ const limitOf = (i: NonNullable<Run["instruction"]>) => (i.max_price ? `$${i.max
 
 const titleOf = (i: NonNullable<Run["instruction"]>) => (limitOf(i) ? `${i.item} Under ${limitOf(i)}` : i.item);
 
-// "Oct 23, 2026 · 4:42 PM"
+// "Oct 23, 2026 · 4:42 PM".
 const paidOn = (iso: string) => {
   const d = new Date(iso);
   return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })} · ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`;
 };
 
-type Props = { prompt: string; saved?: Run; onTitle?: (title: string) => void; onDone?: (run: Run) => void };
+type Props = {
+  prompt: string;
+  saved?: Run;
+  onTitle?: (title: string) => void;
+  onAsking?: (asking: boolean) => void;
+  onDone?: (run: Run) => void;
+};
 
 // Streams one Hunter run from the agent API. With `saved`, it renders that finished run instead.
-export function AgentRun({ prompt, saved, onTitle, onDone }: Props) {
+export function AgentRun({ prompt, saved, onTitle, onAsking, onDone }: Props) {
   const [run, setRun] = useState<Run>(saved ?? START);
   const [opened, setOpened] = useState<Record<number, boolean>>({});
   const feed = useRef<HTMLDivElement>(null);
   const end = useRef<HTMLDivElement>(null);
-  const callbacks = useRef({ onTitle, onDone });
+  const callbacks = useRef({ onTitle, onAsking, onDone });
 
   useEffect(() => {
-    callbacks.current = { onTitle, onDone };
+    callbacks.current = { onTitle, onAsking, onDone };
   });
 
   // ponytail: the stream lives in this component, so leaving the chat mid-run ends it and coming back starts over.
@@ -67,8 +82,20 @@ export function AgentRun({ prompt, saved, onTitle, onDone }: Props) {
   }, [prompt, saved]);
 
   useEffect(() => {
-    if (run.instruction && !saved) callbacks.current.onTitle?.(titleOf(run.instruction));
-  }, [run.instruction, saved]);
+    if (run.title && !saved) callbacks.current.onTitle?.(run.title);
+  }, [run.title, saved]);
+
+  useEffect(() => {
+    if (!saved) callbacks.current.onAsking?.(Boolean(run.question));
+  }, [run.question, saved]);
+
+  // The answer shows once the stream echoes it back. If it can't be sent, the run ends with the reason.
+  const reply = (text: string) => {
+    if (!run.runId) return;
+    answer(run.runId, text).catch((e: Error) => setRun((current) => ({ ...current, error: e.message })));
+  };
+  const asking = (stage: Question["stage"]) =>
+    run.question?.stage === stage ? <Ask key={run.question.text} question={run.question} onAnswer={reply} /> : null;
 
   // Rows join the feed, and then get checked, one tick at a time.
   useEffect(() => {
@@ -87,8 +114,8 @@ export function AgentRun({ prompt, saved, onTitle, onDone }: Props) {
       return () => clearTimeout(id);
     };
     if (run.error) return later(300, { stage: 5 });
-    if (run.stage === 3 && run.picks && !run.picked) return later(3200, { picked: true });
-    if (run.stage === 3 && run.picked) return later(2200, { stage: run.picks?.length ? 4 : 5 });
+    if (run.stage === 3 && run.picks && !run.picked) return later(1600, { picked: true });
+    if (run.stage === 3 && run.picked) return later(1600, { stage: run.picks?.length ? 4 : 5 });
     if (run.stage === 4 && paymentOver) return later(1400, { stage: 5 });
     if (run.stage === 4 && run.steps[run.paid]) return later(run.paid === 0 ? 900 : 1300, { paid: run.paid + 1 });
   }, [saved, run.stage, run.error, run.picks, run.picked, run.paid, run.steps, paymentOver]);
@@ -136,7 +163,7 @@ export function AgentRun({ prompt, saved, onTitle, onDone }: Props) {
     if (saved) return;
     const id = setTimeout(() => end.current?.scrollIntoView({ block: "end", behavior: "smooth" }), 350);
     return () => clearTimeout(id);
-  }, [saved, run.stage, run.thoughts.length, run.instruction, run.picks, run.picked, run.paid]);
+  }, [saved, run.stage, run.thoughts.length, run.instruction, run.question, run.picks, run.picked, run.paid]);
 
   const total = counts(run.rows);
   const checked = counts(run.rows.slice(0, run.gated));
@@ -165,8 +192,11 @@ export function AgentRun({ prompt, saved, onTitle, onDone }: Props) {
   return (
     <div className="run">
       <Stage {...stageProps(0)} title="Understanding Your Request">
-        <Reasoning text={run.reasoning.understand} />
-        {run.stage === 0 && !run.instruction && !run.error && <p className="thinking">Thinking</p>}
+        <Answers answers={run.answers} stage="understand" />
+        {asking("understand")}
+        {run.stage === 0 && !run.instruction && !run.error && !run.question && (
+          <Thinking text={run.reasoning.understand || "Thinking"} />
+        )}
         <ul className="thoughts">
           {run.thoughts.map((thought) => (
             <li key={thought}>{thought}</li>
@@ -202,9 +232,19 @@ export function AgentRun({ prompt, saved, onTitle, onDone }: Props) {
       )}
 
       {run.stage >= 3 && run.rows.length > 0 && (
-        <Stage {...stageProps(3)} title="Picking the Best Deal" live={`Comparing ${total.safe} Safe Listings`}>
-          <Reasoning text={run.reasoning.pick} />
-          {!run.picked && <p className="thinking">Comparing Condition and Price</p>}
+        <Stage
+          {...stageProps(3)}
+          title="Picking the Best Deal"
+          live={run.question ? "Waiting for Your Answer" : `Comparing ${run.narrowed?.kept ?? total.safe} Safe Listings`}
+        >
+          <Answers answers={run.answers} stage="pick" />
+          {asking("pick")}
+          {run.narrowed && (
+            <p className="muted">
+              Kept {run.narrowed.kept} of {run.narrowed.total} safe listings.
+            </p>
+          )}
+          {!run.picked && !run.question && <Thinking text={run.reasoning.pick || "Comparing reviews, price and condition"} />}
           {run.picks && run.picks.length > 0 && (
             <div className="picks">
               {run.picks.map((pick, index) => {
@@ -288,10 +328,7 @@ function Finish({ run }: { run: Run }) {
             <Field label="Paid On">{paidOn(r.paidAt)}</Field>
             {r.txHash && r.explorer && (
               <Field label="Payment Record" mono>
-                <a className="receipt-link" href={r.explorer} target="_blank" rel="noreferrer">
-                  {shorten(r.txHash)}
-                  <ArrowUpRightIcon />
-                </a>
+                <TxLink hash={r.txHash} explorer={r.explorer} />
               </Field>
             )}
           </dl>
@@ -316,7 +353,7 @@ function Finish({ run }: { run: Run }) {
       </>
     );
   else if (chosen && stopped) body = <>Hunter didn’t pay. {stopped.detail}</>;
-  else body = <>Hunter didn’t find a listing that passed every check{limit ? ` under ${limit}` : ""}, so it bought nothing.</>;
+  else body = <>Hunter didn’t find a safe listing that matches your request{limit ? ` under ${limit}` : ""}, so it bought nothing.</>;
 
   return (
     <div className="finish">
@@ -328,15 +365,146 @@ function Finish({ run }: { run: Run }) {
   );
 }
 
-// The model's raw reasoning, folded by default: it is long, and listing text it quotes is untrusted.
-function Reasoning({ text }: { text: string }) {
-  if (!text) return null;
+// A question Hunter is waiting on, as a column of options with typing your own answer last. A number key picks
+// that option, and the last number focuses the text row. Everything locks once one answer is sent.
+function Ask({ question, onAnswer }: { question: Question; onAnswer: (text: string) => void }) {
+  const [text, setText] = useState("");
+  const [sent, setSent] = useState<string>();
+  const other = useRef<HTMLInputElement>(null);
+  const options = question.options.map(titleCase);
+  const send = (value: string) => {
+    const reply = value.trim();
+    if (sent !== undefined || !reply) return;
+    setSent(reply);
+    onAnswer(reply);
+  };
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey || event.target instanceof HTMLInputElement) return;
+      if (event.target instanceof HTMLTextAreaElement) return;
+      const n = Number(event.key);
+      if (n >= 1 && n <= options.length) send(options[n - 1]);
+      else if (n === options.length + 1) {
+        event.preventDefault();
+        other.current?.focus();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  const state = (option: string) =>
+    sent === undefined ? "ask-row" : sent === option ? "ask-row chosen" : "ask-row passed";
+
   return (
-    <details className="reasoning">
-      <summary>Show Reasoning</summary>
-      <p>{text}</p>
-    </details>
+    <div className="ask">
+      <p className="ask-text">{question.text}</p>
+      <div className="ask-list">
+        {options.map((option, index) => (
+          <button
+            key={option}
+            className={state(option)}
+            type="button"
+            disabled={sent !== undefined}
+            onClick={() => send(option)}
+          >
+            <span className="ask-key">{index + 1}</span>
+            {question.images && <Thumb src={question.images[index]} />}
+            <span className="ask-label">{option}</span>
+            {question.counts?.[index] != null && <span className="ask-count">{question.counts[index]}</span>}
+          </button>
+        ))}
+        <form
+          className={sent !== undefined && !options.includes(sent) ? "ask-row ask-other chosen" : "ask-row ask-other"}
+          onSubmit={(event) => {
+            event.preventDefault();
+            send(text);
+          }}
+        >
+          <span className="ask-key">{options.length + 1}</span>
+          {question.images && <Thumb />}
+          <input
+            ref={other}
+            className="ask-input"
+            value={text}
+            placeholder="Something Else…"
+            maxLength={200}
+            disabled={sent !== undefined}
+            onChange={(event) => setText(event.target.value)}
+          />
+          <button className="send" type="submit" aria-label="Send" disabled={sent !== undefined || !text.trim()}>
+            <SendIcon />
+          </button>
+        </form>
+      </div>
+    </div>
   );
+}
+
+// A photo from one listing an option keeps, so the choice shows what it means. Options without a photo, or whose
+// photo fails to load, show the no-image icon in the same space. Rows that never have one (No Preference,
+// Something Else) show nothing.
+function Thumb({ src }: { src?: string | null }) {
+  const [failed, setFailed] = useState(false);
+  if (src === undefined) return null;
+  if (!src || failed)
+    return (
+      <span className="ask-thumb empty">
+        <NoImageIcon />
+      </span>
+    );
+  return (
+    <img
+      className="ask-thumb"
+      src={src}
+      alt=""
+      loading="lazy"
+      referrerPolicy="no-referrer"
+      onError={() => setFailed(true)}
+    />
+  );
+}
+
+// Questions already answered at this stage, each with the user's answer.
+function Answers({ answers, stage }: { answers: Answer[]; stage: Answer["stage"] }) {
+  const shown = answers.filter((a) => a.stage === stage);
+  if (!shown.length) return null;
+  return (
+    <ul className="answers">
+      {shown.map((a) => (
+        <li key={a.question}>
+          <span className="muted">{a.question}</span>
+          <span>{titleCase(a.text)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// What Hunter is thinking right now: one short sentence. Each stays up for THINK_MS before the newest replaces it,
+// so a burst of thoughts reads as a few calm changes.
+function Thinking({ text }: { text: string }) {
+  const shown = useSteady(text, THINK_MS);
+  return (
+    <p key={shown} className="thinking">
+      {shown}
+    </p>
+  );
+}
+
+// `value`, changing at most once every `ms`. Values that arrive in between are skipped for the newest one.
+function useSteady<T>(value: T, ms: number): T {
+  const [shown, setShown] = useState(value);
+  const since = useRef(0);
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setShown(value);
+      since.current = Date.now();
+    }, Math.max(0, since.current + ms - Date.now()));
+    return () => clearTimeout(id);
+  }, [value, ms]);
+  return shown;
 }
 
 type StageProps = {
@@ -415,6 +583,16 @@ const FeedRow = memo(function FeedRow({ row, state }: { row: Row; state: string 
     </div>
   );
 });
+
+// A short transaction hash that opens Basescan.
+function TxLink({ hash, explorer }: { hash: string; explorer: string }) {
+  return (
+    <a className="receipt-link" href={explorer} target="_blank" rel="noreferrer">
+      {shorten(hash)}
+      <ArrowUpRightIcon />
+    </a>
+  );
+}
 
 function Field({ label, mono, children }: { label: string; mono?: boolean; children: ReactNode }) {
   return (

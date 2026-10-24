@@ -17,6 +17,7 @@ dependencies = [
     { name = "eth-account" },
     { name = "fastapi", extra = ["standard"] },
     { name = "httpx" },
+    { name = "pymongo" },
     { name = "python-dotenv" },
 ]
 
@@ -27,6 +28,7 @@ requires-dist = [
     { name = "eth-account", specifier = ">=0.13" },
     { name = "fastapi", extras = ["standard"], specifier = ">=0.162.0" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "pymongo", specifier = ">=4.13" },
     { name = "python-dotenv", specifier = ">=1.0" },
 ]
 
