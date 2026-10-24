@@ -75,6 +75,36 @@ async function withLivePhotos(listing: MarketListing): Promise<MarketListing> {
   return { ...listing, item: { ...listing.item, images: images.filter((image) => liveHosts.has(hostOf(image))) } };
 }
 
+// The Atlas Vector Search index from scripts/create-vector-index.mjs. Atlas embeds the titles and the query itself.
+const SEARCH_INDEX = "listings_title_vector";
+const SEARCH_PATH = "item.title";
+const SEARCH_LIMIT = 40;
+// Atlas scans this many nearest neighbours before keeping the best SEARCH_LIMIT. Ten times the limit is the usual starting point.
+const SEARCH_CANDIDATES = 400;
+
+// The marketplace IDs of the listings that read closest to the query, best first, from one marketplace.
+// Every query asks Atlas to embed the text, so the answer is kept for a while.
+async function searchExternalIds(marketplace: Marketplace, query: string): Promise<string[]> {
+  "use cache";
+  cacheLife("hours");
+  const listings = (await database("calhacks")).collection<MarketListing>("listings");
+  const hits = await listings
+    .aggregate<{ source: { externalId: string } }>([
+      { $vectorSearch: { index: SEARCH_INDEX, path: SEARCH_PATH, query, numCandidates: SEARCH_CANDIDATES, limit: SEARCH_LIMIT, filter: { "source.marketplace": marketplace } } },
+      { $project: { _id: 0, "source.externalId": 1 } },
+    ])
+    .toArray();
+  return hits.map((hit) => hit.source.externalId);
+}
+
+// Search results in Atlas's order, drawn from the store's own items so every result is one the store can show and sell.
+// Each store keys its items by the marketplace ID. An empty query returns everything, the way a bare search page does.
+export async function searchItems<T>(marketplace: Marketplace, query: string, items: T[], externalIdOf: (item: T) => string): Promise<T[]> {
+  if (!query) return items;
+  const byId = new Map(items.map((item) => [externalIdOf(item), item]));
+  return (await searchExternalIds(marketplace, query)).flatMap((id) => byId.get(id) ?? []);
+}
+
 // Every store sells the listings scraped from its own marketplace. A listing without a price or a photo cannot be sold or shown, so it is left out.
 export async function marketListings(marketplace: Marketplace): Promise<MarketListing[]> {
   "use cache";

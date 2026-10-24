@@ -5,6 +5,7 @@ import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import allowlist from "../../../contracts/allowlist.json";
 import { formatUsd } from "./format";
+import { searchItems, type Marketplace } from "./market";
 
 // Every store takes USDC on the Base Sepolia testnet, and the x402.org facilitator checks and settles each payment.
 // The network and the payment timeout come from contracts/allowlist.json, the same policy the Gate and the agent check.
@@ -27,6 +28,8 @@ export type Listing = {
 // Each store describes itself once, and the same checkout runs on top of it. The listings load from the scraped catalog.
 export type Merchant = {
   name: string;
+  // The marketplace the listings were scraped from. A catalog search ranks that marketplace's listings by the query.
+  marketplace: Marketplace;
   listings: () => Promise<Listing[]>;
 };
 
@@ -113,9 +116,11 @@ export function checkoutRoute(merchant: Merchant) {
 }
 
 // GET /api/catalog lists every listing with where to view it and where to buy it.
+// GET /api/catalog?q=fleece lists only the listings closest to the query, best first, so an agent can crawl what the shopper asked for.
 export function catalogRoute(merchant: Merchant) {
-  return async function GET() {
-    const listings = await merchant.listings();
+  return async function GET(req: NextRequest) {
+    const query = req.nextUrl.searchParams.get("q")?.trim() ?? "";
+    const listings = await searchItems(merchant.marketplace, query, await merchant.listings(), (listing) => listing.key);
     return Response.json({
       store: merchant.name,
       currency: PAYMENT.currency,

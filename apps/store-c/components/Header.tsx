@@ -4,7 +4,7 @@ import { Bag, Search } from "./Icons";
 
 const NAV = ["Women", "Men", "Kids", "Brands", "Sports", "Trending"];
 
-export default function Header() {
+export default function Header({ query }: { query?: string }) {
   return (
     <header className="header">
       <div className="promo">
@@ -14,9 +14,9 @@ export default function Header() {
         <Link href="/" className="logo" aria-label="dpp">
           dpp
         </Link>
-        <form className="search" action="/" role="search">
+        <form className="search" action="/search" role="search">
           <Search />
-          <input type="text" name="q" aria-label="Search" placeholder="Search for Anything" />
+          <input type="text" name="q" defaultValue={query} aria-label="Search" placeholder="Search for Anything" />
           <Camera width={18} height={16} />
         </form>
         <div className="bar-actions">

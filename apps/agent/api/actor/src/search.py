@@ -16,7 +16,7 @@ import asyncio
 import re
 import time
 from collections.abc import AsyncIterator
-from urllib.parse import urljoin
+from urllib.parse import urlencode, urljoin
 
 import httpx
 
@@ -33,10 +33,10 @@ def origin(store: str) -> str:
     return f"{scheme}://{host}"
 
 
-def matches(query: str, title: str) -> bool:
-    """Every query word appears in the title ("jacket" also matches "jackets"). Empty query matches all."""
-    title = title.lower()
-    return all(word in title for word in query.lower().split())
+def catalog_url(origin: str, query: str) -> str:
+    """The store ranks its own catalog by the query (Atlas Vector Search), so only what the shopper asked for is crawled.
+    An empty query lists the whole catalog."""
+    return urljoin(origin, CATALOG_PATH) + (f"?{urlencode({'q': query})}" if query.strip() else "")
 
 
 async def get(client: httpx.AsyncClient, url: str, attempts: int = 3) -> httpx.Response:
@@ -89,12 +89,11 @@ async def search(client: httpx.AsyncClient, origins: list[str], query: str = "",
         async with asyncio.TaskGroup() as tg:
             tg.create_task(meta(origin))
             try:
-                catalog = (await get(client, urljoin(origin, CATALOG_PATH))).json()
+                catalog = (await get(client, catalog_url(origin, query))).json()
             except Exception as e:
                 await emit({"type": "error", "store": origin, "error": f"catalog: {e!r}"})
                 return
-            items = [i for i in catalog.get("items", []) if matches(query, i.get("title") or "")]
-            for item in items[:max_per_store or None]:
+            for item in catalog.get("items", [])[:max_per_store or None]:
                 item = {**item,
                         "url": item.get("path") and urljoin(origin, item["path"]),
                         "checkoutUrl": item.get("checkoutUrl") and urljoin(origin, item["checkoutUrl"])}
