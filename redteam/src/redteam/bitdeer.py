@@ -18,7 +18,7 @@ def make_client():
     from openai import OpenAI
     key = os.environ.get("BITDEER_API_KEY")
     if not key:
-        raise RuntimeError("BITDEER_API_KEY is not set (put it in <repo>/.env or use --offline)")
+        raise RuntimeError("BITDEER_API_KEY is not set (put it in <repo>/.env or .env.local)")
     return OpenAI(base_url=BITDEER_BASE, api_key=key, timeout=240, max_retries=0)
 
 

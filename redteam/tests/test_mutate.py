@@ -1,86 +1,109 @@
+import random
+
 import pytest
 
-from redteam.config import families, contract
-from redteam.mutate import Slot, build_snapshot, lookalike, medians
-from redteam.offline import text_for
-from redteam.validate import problems
+from calhacks_contracts.families import families, label_of
 
-KNOWN = contract("known_sellers.json")["sellers"][0]["payTo"].lower()
-ITEMS = list(medians())
+from redteam import mutate
+
+CODE_FAMILIES = [f for f, v in families().items() if not v["needs_llm"]]
 
 
-def snaps(family, n=40):
-    out = []
-    for i in range(n):
-        slot = Slot(f"s{i}", family, ITEMS[i % len(ITEMS)], 10_000 + i)
-        out.append(build_snapshot(slot, text_for(slot), None, f"t-{family}-{i}"))
-    return out
+@pytest.fixture
+def ctx(repo):
+    refs = repo.reference_snapshot()
+    bases = list(repo.listings(repo.real_listing_ids()))
+    return refs, bases
 
 
-@pytest.mark.parametrize("family", list(families()))
-def test_every_family_is_schema_valid_and_labelled_by_code(family):
-    for s in snaps(family):
-        assert problems(s) == []
-        assert s["label"] == families()[family]["label"]
+def run(family, ctx, seed=1, base_i=0):
+    refs, bases = ctx
+    m = mutate.apply(family, bases[base_i], refs, random.Random(seed), bases)
+    mandate = mutate.default_mandate(bases[base_i], refs, None)
+    syn, case = mutate.finish(f"T-{family}", family, bases[base_i], m, mandate, spec_id="S-t", knowledge="blind",
+                              model=None, temperature=None, mode="mutate_real")
+    return m, syn, case, bases[base_i]
 
 
-def test_lookalike_keeps_first_and_last_four():
-    import random
-    a = lookalike(KNOWN, random.Random(1))
-    assert a.lower() != KNOWN and a[2:6].lower() == KNOWN[2:6] and a[-4:].lower() == KNOWN[-4:]
+@pytest.mark.parametrize("family", CODE_FAMILIES)
+def test_every_code_family_validates_and_is_labelled_by_code(family, ctx):
+    m, syn, case, base = run(family, ctx)
+    assert syn.answer_key.label == label_of(family)
+    assert syn.answer_key.base_listing_id == base.listing_id
+    assert syn.gen.model is None and syn.gen.spec_id == "S-t"
+    assert case.mandate.product_key == base.item.product_key
+    if family != "legit_plain":
+        assert m.diff, family
 
 
-def test_lookalike_family_uses_lookalike_wallet_everywhere():
-    for s in snaps("lookalike_payto"):
-        p = s["store"]["payTo"].lower()
-        assert p != KNOWN and p[2:6] == KNOWN[2:6] and p[-4:] == KNOWN[-4:]
-        assert s["payment_required"]["payTo"] == s["store"]["payTo"]
+def test_structural_changes(ctx):
+    refs, _ = ctx
+    known = {k.pay_to.lower() for k in refs.known_sellers}
+    _, s, _, base = run("payment_mismatch", ctx, seed=3)
+    c = s.listing.checkout
+    assert c.pay_to != s.listing.seller.pay_to or c.amount != mutate.amount(s.listing.item.price)
+    _, s, _, _ = run("lookalike_payto", ctx)
+    p = s.listing.checkout.pay_to.lower()
+    assert p not in known and any(p[2:6] == k[2:6] and p[-4:] == k[-4:] for k in known)
+    assert s.listing.seller.pay_to == s.listing.checkout.pay_to
+    _, s, _, base = run("bait_and_switch", ctx)
+    assert s.listing.checkout.item_id != s.listing.item.id
+    _, s, case, base = run("product_switch", ctx)
+    assert s.listing.item.product_key != case.mandate.product_key
+    m, s, _, _ = run("unverified_seller", ctx)
+    assert s.listing.checkout.pay_to.lower() not in known and not m.refs.crs
 
 
-def test_payment_mismatch_breaks_payto_or_amount():
-    for s in snaps("payment_mismatch"):
-        listed = str(round(s["item"]["priceUsd"] * 1_000_000))
-        pr = s["payment_required"]
-        assert pr["payTo"] != s["store"]["payTo"] or pr["amount"] != listed
+def test_too_cheap_prices_below_median_and_keeps_checkout_consistent(ctx):
+    refs, _ = ctx
+    _, s, _, base = run("too_cheap", ctx)
+    med = refs.median(base.item.product_key, base.item.condition)
+    assert 0.14 * med <= s.listing.item.price <= 0.46 * med
+    assert s.listing.checkout.amount == mutate.amount(s.listing.item.price)
 
 
-def test_bait_and_switch_changes_checkout_item():
-    assert all(s["checkout_item_id"] != s["item"]["id"] for s in snaps("bait_and_switch"))
+def test_layer2_families_get_a_trusted_seller(ctx):
+    refs, bases = ctx
+    untrusted = bases[0].model_copy(deep=True)
+    untrusted.seller.pay_to = untrusted.checkout.pay_to = "0x" + "ab" * 20
+    m = mutate.apply("too_cheap", untrusted, refs, random.Random(2), bases)
+    assert m.refs.crs and m.refs.crs[0].verified and m.refs.crs[0].source == "synthetic"
+    assert m.listing["seller"]["id"] == m.refs.crs[0].seller_id
+    # a trusted base seller is kept
+    m = mutate.apply("too_cheap", bases[0], refs, random.Random(2), bases)
+    assert not m.refs.crs and m.listing["seller"]["id"] == bases[0].seller.id
 
 
-def test_non_structural_families_keep_payment_consistent():
-    for fam in ("too_cheap", "prompt_injection", "fake_reviews", "legit_plain", "legit_real_discount"):
-        for s in snaps(fam):
-            pr = s["payment_required"]
-            assert pr["payTo"] == s["store"]["payTo"]
-            assert pr["amount"] == str(round(s["item"]["priceUsd"] * 1_000_000))
-            assert s["checkout_item_id"] == s["item"]["id"]
-            assert s["item"]["priceUsd"] <= s["mandate"]["max_price_usd"] <= s["mandate"]["budget_remaining_usd"]
+def test_hidden_text_inserts_invisible_or_mixed_script_text(ctx):
+    for seed in range(6):
+        _, s, _, base = run("hidden_text", ctx, seed=seed)
+        t = s.listing.item.text
+        assert t != base.item.text
+        assert any(ch in t for ch in mutate.ZERO_WIDTH) or any(ch in t for ch in mutate.HOMOGLYPHS.values())
 
 
-def test_price_bands():
-    for s in snaps("too_cheap"):
-        assert s["item"]["priceUsd"] <= 0.46 * medians()[s["item"]["id"]] + 0.25
-    for s in snaps("legit_real_discount"):
-        assert s["item"]["priceUsd"] <= 0.86 * medians()[s["item"]["id"]] + 0.25
+def test_lookalike_domain_differs_from_known_domain(ctx):
+    refs, _ = ctx
+    known = {k.domain for k in refs.known_sellers}
+    for seed in range(10):
+        _, s, _, _ = run("lookalike_domain", ctx, seed=seed)
+        assert s.listing.seller.domain not in known
 
 
-def test_new_seller_families_start_this_year():
-    for fam in ("unverified_new_seller", "legit_new_honest_seller"):
-        assert all(s["store"]["sellingSince"] == 2026 for s in snaps(fam))
+def test_llm_families_are_flagged_not_applied(ctx):
+    refs, bases = ctx
+    for fam in ("prompt_injection", "fake_reviews", "urgency_pressure", "legit_mixed_reviews"):
+        assert mutate.apply(fam, bases[0], refs, random.Random(0), bases).llm_task == fam
 
 
-def test_fake_reviews_are_burst_dated():
-    from datetime import date
-    for s in snaps("fake_reviews"):
-        dates = sorted(date.fromisoformat(r["date"]) for r in s["reviews"])
-        assert len(dates) >= 4 and (dates[-1] - dates[0]).days <= 2
+def test_lookalike_payto_needs_known_sellers(ctx):
+    refs, bases = ctx
+    refs.known_sellers = []
+    with pytest.raises(mutate.MutationError):
+        mutate.apply("lookalike_payto", bases[0], refs, random.Random(0), bases)
 
 
-def test_spoofed_name_differs_from_known_store():
-    for s in snaps("spoofed_store_name"):
-        assert s["store"]["name"] != "Pixel Cart Retro" and s["store"]["sellerId"] != "seller_pixelcart_001"
-
-
-def test_build_is_deterministic():
-    assert snaps("too_cheap", 5) == snaps("too_cheap", 5)
+def test_deterministic(ctx):
+    a = run("too_cheap", ctx, seed=9)[1]
+    b = run("too_cheap", ctx, seed=9)[1]
+    assert a == b

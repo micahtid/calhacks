@@ -140,6 +140,24 @@ Secrets go in `.env` files (gitignored). Commit only `.env.example`.
 
 On this network uv may need `UV_SYSTEM_CERTS=1` (TLS interception).
 
+## Red-team loop
+
+`redteam/` (uv project) makes attack listings, keeps the sealed holdout, and runs the Factory coordinator. All
+listings live in MongoDB through `calhacks-contracts`; nothing is read from local data files.
+
+- **Attack factory** (`redteam.generate`): an `AttackSpec` in, `SyntheticListing`s out to MongoDB. The main mode,
+  `mutate_real`, copies a real listing and changes one thing in code (wallet, price, checkout id, product, seller,
+  domain, hidden text), recorded in the answer key's `attack_diff`. Families that need wording (prompt injection,
+  fake reviews, urgency, mixed reviews) get their text or reviews rewritten by Bitdeer (GLM-5.3-Flash and
+  DeepSeek-V4.1-Flash in rotation). Bad LLM output is retried once, then dropped, and drops are counted per family.
+
+  ```sh
+  uv run --project redteam python -m redteam.generate --round 1 --family too_cheap --n 40 --legit-ratio 0.4
+  ```
+
+  Needs real listings in MongoDB first (`contracts-ingest listings`). `BITDEER_API_KEY` goes in `.env` or `.env.local`.
+- **Tests:** `uv run --project redteam pytest` (mongomock and a fake Bitdeer client; no network).
+
 ## Prize tracks
 
 Visa, Hyphenate, Coinbase x402 (payment protocol), Apify (real listings), Factory (spec + Fix Droid), CRS, Armadin, Bitdeer (scam generation / classifier), Cal Hacks Overall.
@@ -183,7 +201,8 @@ Keep this section current (see `AGENTS.md`).
 - [ ] Scout (Claude) agent loop
 - [ ] Gate (option A rules or option B classifier, undecided)
 - [ ] Wallet signer + x402 payment against Base Sepolia
-- [ ] Bitdeer fake-listing generation and labeled dataset
+- [x] Bitdeer attack generation from real MongoDB listings (`mutate_real` / `generate`), labels and attack diffs set by code
+- [ ] Labeled dataset generated from real listings (blocked on real listings in MongoDB)
 - [ ] Scoring harness with held-out set and catch-rate reporting
 - [ ] Factory spec + Fix Droid loop
 - [ ] Demo UI (rules input, payment view)
