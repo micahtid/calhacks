@@ -7,8 +7,8 @@ from collections.abc import AsyncIterator
 import httpx
 
 # The three real stores plus the mzn Official Outlet scam lookalike, so the Gate sees scams in every search.
-STORES = ["https://amazon.hntr.store", "https://ebay.hntr.store", "https://depop.hntr.store",
-          "https://amazon-outlet.hntr.store"]
+REAL_STORES = ["https://amazon.hntr.store", "https://ebay.hntr.store", "https://depop.hntr.store"]
+STORES = [*REAL_STORES, "https://amazon-outlet.hntr.store"]
 
 
 def actor_url() -> str:

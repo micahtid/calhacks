@@ -1,7 +1,7 @@
 """Bitdeer chat client (OpenAI-compatible): streams the model's reasoning, then returns its JSON answer.
 
-JSON-object mode plus our own validation, not strict json_schema: redteam/src/redteam/bitdeer.py notes runaway
-whitespace with schemas on Bitdeer.
+JSON-object mode plus our own validation, not strict json_schema: strict schemas on Bitdeer produced runs of
+whitespace instead of an answer (same choice as redteam/src/redteam/bitdeer.py).
 """
 
 import json

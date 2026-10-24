@@ -3,8 +3,8 @@ scripts/test-checkout.mjs and @x402/fetch, in the six steps the UI shows.
 
 1. Start checkout: POST the listing's checkout URL with a shipTo and no payment. The store answers 402.
 2. Get the price and payment address from the PAYMENT-REQUIRED header.
-3. Double-check before paying, in code: network and asset allowlisted, amount equals the listed price, payTo equals
-   the store.json wallet, and the price is within the user's limit.
+3. Double-check before paying, in code: network and asset allowlisted (contracts/allowlist.json), amount equals the
+   listed price, payTo equals the store.json wallet, and the price is within the user's limit.
 4. Approve the exact amount: sign an EIP-3009 TransferWithAuthorization for exactly that amount to that wallet.
    Signing moves no funds; the key never leaves this process. Needs BUYER_PRIVATE_KEY, else the run stops here.
 5. Send the payment: POST again with the PAYMENT-SIGNATURE header. The store has the x402.org facilitator verify
@@ -23,11 +23,14 @@ from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 
 import httpx
+from calhacks_contracts.families import allowlist
 from eth_account import Account
 
-NETWORK = "eip155:84532"
-CHAIN_ID = 84532
-USDC = "0x036CbD53842c5426634e7929541eC2318f3dCF7e"  # Circle's USDC on Base Sepolia
+POLICY = allowlist()
+NETWORK = POLICY["networks"][0]  # Base Sepolia
+CHAIN_ID = int(NETWORK.split(":")[1])
+USDC = POLICY["assets"][NETWORK]  # Circle's USDC on Base Sepolia
+UNIT = 10 ** POLICY["usdc_decimals"]
 EXPLORER = "https://sepolia.basescan.org"
 # ponytail: one fixed ship-to until users enter their own; nothing ships on testnet
 SHIP_TO = {"name": os.environ.get("SHIP_TO_NAME", "Hunter Demo"),
@@ -80,8 +83,8 @@ def double_check(req: dict, price: float, store_pay_to: str | None, max_price: f
         return f"the store asked for {req.get('scheme')} on {req.get('network')}, not USDC on Base Sepolia"
     if (req.get("asset") or "").lower() != USDC.lower():
         return "the store asked to be paid in a token that isn't USDC"
-    if req.get("amount") != str(round(price * 1_000_000)):
-        return f"the store asked for {int(req.get('amount') or 0) / 1e6:.2f} USDC but listed {price:.2f}"
+    if req.get("amount") != str(round(price * UNIT)):
+        return f"the store asked for {int(req.get('amount') or 0) / UNIT:.2f} USDC but listed {price:.2f}"
     if not store_pay_to or (req.get("payTo") or "").lower() != store_pay_to.lower():
         return "the payment address doesn't match the wallet the store publishes"
     if max_price is not None and price > max_price:
@@ -107,7 +110,7 @@ async def checkout(client: httpx.AsyncClient, listing: dict, store: dict | None,
 
     required = b64json(res.headers["payment-required"])
     req = required["accepts"][0]
-    amount = int(req["amount"]) / 1e6
+    amount = int(req["amount"]) / UNIT
     yield step(1, "done", f"{name} asked for {amount:.2f} USDC to its published wallet.")
 
     if problem := double_check(req, price, (store or {}).get("payTo"), max_price):
@@ -149,7 +152,7 @@ if __name__ == "__main__":
     key = "0x" + "11" * 32  # fixed test key, never funded
     required = {"x402Version": 2, "resource": {"url": "https://x/api/checkout/a"}, "accepts": [{
         "scheme": "exact", "network": NETWORK, "amount": "5000000", "asset": USDC,
-        "payTo": "0x45fE928DaA6A16362cd51DD25660Bf540c16c862", "maxTimeoutSeconds": 120,
+        "payTo": "0x45fE928DaA6A16362cd51DD25660Bf540c16c862", "maxTimeoutSeconds": POLICY["max_timeout_s"],
         "extra": {"name": "USDC", "version": "2"}}]}
     p = sign_payment(key, required, now=1_000)
     auth = p["payload"]["authorization"]

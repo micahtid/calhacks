@@ -142,8 +142,11 @@ Browser (Vercel)  <- SSE -  agent API (Railway, FastAPI)  <- NDJSON -  store-cra
   - Layer 1: the store's domain must be mzn, by or dpp (`L1_SELLER_UNTRUSTED`), and the price must be at most
     `max_price` (`L1_OVER_MAX`). It checks domains, not wallets, because the hosted stores and the outlet share one
     test wallet.
-  - Layer 2 (hand-weighted, threshold 0.5): prompt-injection phrases in the page or hidden text (0.7), any hidden
-    text (0.6), and a price under 10% of the search's median price so far (0.6).
+  - Layer 2 (hand-weighted, threshold 0.5): prompt-injection patterns in the page or hidden text (0.7), any hidden
+    text (0.6), and a price under 10% of the search's median price so far (0.6). The patterns are the seed list in
+    `contracts/injection_patterns.json`, the same one the real Gate's Layer 2 counts.
+  - Known stores come from the one store list in `app/search.py`, and every decision is validated as a contracts
+    `GateDecision` before it is sent.
   - A page that could not be fetched is a skip with `decided_by: null` and an `error`, like the real Gate's fail-closed 503.
   - On a live search of all 686 listings it skipped all 148 outlet listings at Layer 1 and approved every real one.
   - Self-check: `uv run python -m app.gate` (from `apps/agent/api`).
@@ -167,7 +170,9 @@ Browser (Vercel)  <- SSE -  agent API (Railway, FastAPI)  <- NDJSON -  store-cra
 | `SHIP_TO_NAME`, `SHIP_TO_ADDRESS` | agent API | Optional ship-to sent at checkout (default a demo address; nothing ships) |
 
 Locally the agent API reads `apps/agent/api/.env` and the web app `apps/agent/web/.env.local`; both have a
-`.env.example`. Railway: root directory `apps/agent/api`, start command `uv run fastapi run app/main.py --port $PORT`.
+`.env.example`. The API depends on `contracts/` (`calhacks-contracts`, a uv path dependency like in `gate/` and
+`redteam/`), so Railway builds it from the repo root: root directory `/`, config file `apps/agent/api/railway.json`,
+which builds `apps/agent/api/Dockerfile` and redeploys on changes under `apps/agent/api/` or `contracts/`.
 
 ## Hunter chat run (Scout + live search)
 
@@ -185,8 +190,9 @@ OpenAI-compatible at `https://api-inference.bitdeer.ai/v1`); it never touches mo
    If the model fails or names nothing usable, the 3 cheapest approved listings are picked in code.
 4. **Pay** (`app/pay.py`): the best pick is bought over x402 in the six steps the UI lists, each sent as a
    `checkout {step, state, detail}` event: start checkout (POST with a ship-to, the store answers 402), read the price
-   and wallet from `PAYMENT-REQUIRED`, double-check in code (USDC on Base Sepolia, amount equals the listed price,
-   `payTo` equals the store.json wallet, within the limit), sign an EIP-3009 `TransferWithAuthorization` for exactly
+   and wallet from `PAYMENT-REQUIRED`, double-check in code (network and asset as in
+   `contracts/allowlist.json`, amount equals the listed price, `payTo` equals the store.json wallet, within the
+   limit), sign an EIP-3009 `TransferWithAuthorization` for exactly
    that amount with `BUYER_PRIVATE_KEY`, POST again with `PAYMENT-SIGNATURE`, and read the order and the transaction
    hash (`PAYMENT-RESPONSE`). A `receipt` event follows a real payment. The facilitator pays gas, so the wallet needs
    USDC but no ETH. Without `BUYER_PRIVATE_KEY` the run stops at "Approve the Exact Amount" (`state: blocked`) and
@@ -341,7 +347,7 @@ Keep this section current (see `AGENTS.md`).
 - [x] Live store search: store-crawler Apify Standby Actor streaming listings and item pages, relayed as SSE by the agent API (`GET /search`)
 - [x] Mock Gate verdicts in the search stream (`GateDecision` shape, `model_version: "mock"`), standing in for the real Gate
 - [x] Agent web chat runs live from `GET /chat` in the demo's design (editable prompt, live feed and checks, picks, collapsed reasoning, checkout steps, receipt)
-- [x] x402 checkout in the agent API (`app/pay.py`): real 402, double-check, EIP-3009 signing, settlement; `BUYER_PRIVATE_KEY` is the calhacks-plan demo wallet (`0x7D06…Cea8`, also in `apps/agent/web/lib/wallet.ts`), which needs more faucet USDC before it can pay
+- [x] x402 checkout in the agent API (`app/pay.py`): real 402, double-check, EIP-3009 signing, settlement; `BUYER_PRIVATE_KEY` is the demo wallet (`0x7D06…Cea8`, also in `apps/agent/web/lib/wallet.ts`), which needs more faucet USDC before it can pay
 - [x] Scout on Bitdeer GLM-5.3-Flash: reads the request, ranks Gate-approved listings, streams its reasoning (`GET /chat`)
 - [x] Gate Layer 1: fixed TypeScript rules over the issue #1 `GateInput`
 - [x] Gate Layer 2: LightGBM risk model trained and evaluated on MongoDB data, `POST /gate/risk`
