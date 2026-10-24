@@ -27,6 +27,7 @@ import random
 import sys
 import time
 from collections import Counter, defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
 from calhacks_contracts import AnswerKey, Case, GenInfo, HoldoutTotals, Rate, SyntheticListing, rate
 from calhacks_contracts.families import policy_bounded_families
@@ -40,7 +41,9 @@ from redteam.generate import run_spec
 META_FILE = HOLDOUT / "holdout.v3.meta.json"
 HISTORY_FILE = HOLDOUT / "holdout.v3.history.jsonl"  # operator-only per-model reports
 MAX_PER_BASE = 3
-RETRIES = 3          # re-requests of slots dropped by the LLM (or by mutation), per spec
+FAMILY_WORKERS = 4  # specs generated at once; each also runs its LLM chunks concurrently
+RETRIES = 2          # re-requests of slots dropped by the LLM (or by mutation), per spec
+CALL_DEADLINE_S = 120.0  # per Bitdeer call; a slow slot is dropped, re-requested, and any rest recorded as shortfall
 BOOTSTRAP = 1000
 
 
@@ -93,8 +96,13 @@ def build(*, force: bool = False, per_family: int = 60, slice_n: int = 20, seed:
     items, wallets, dropped, tokens, shortfall = [], {}, Counter(), [], {}
     base_use = Counter()
     gen = lambda spec: run_spec(spec, round_=0, r=r, client=client, write=False, allow_holdout=True, seed=seed,
-                                models=[HOLDOUT_MODEL], id_prefix="H", base_use=base_use, max_per_base=max_per_base)
-    for spec in specs:
+                                models=[HOLDOUT_MODEL], id_prefix="H", base_use=base_use, max_per_base=max_per_base,
+                                call_deadline=CALL_DEADLINE_S)
+
+    def one(spec):
+        """All of one spec's listings, re-requesting dropped slots. Specs run in parallel (FAMILY_WORKERS at a time);
+        base_use is shared under a lock in run_spec, so the per-base cap holds across threads."""
+        outs = []
         n_legit = round(spec["n"] * spec["legit_ratio"])
         want = {"scam": spec["n"] - n_legit, "legit": n_legit}
         have = Counter()
@@ -108,14 +116,19 @@ def build(*, force: bool = False, per_family: int = 60, slice_n: int = 20, seed:
                  "legit_ratio": 1.0 if lab == "legit" else 0.0} for lab, n in sorted(need.items())]
             for sub in subs:
                 out = gen(sub)
+                outs.append(out)
+                have.update(s.answer_key.label for s, _ in out["_items"])
+        return outs, {lab: want[lab] - have[lab] for lab in want if want[lab] > have[lab]}
+
+    with ThreadPoolExecutor(FAMILY_WORKERS) as ex:
+        for spec, (outs, short) in zip(specs, ex.map(one, specs)):
+            for out in outs:
                 items += out["_items"]
                 wallets.update(out["_refs"].wallets)
                 dropped.update(out["drops_by_family"])
                 tokens.append(out["tokens"])
-                have.update(s.answer_key.label for s, _ in out["_items"])
-        short = {lab: want[lab] - have[lab] for lab in want if want[lab] > have[lab]}
-        if short:
-            shortfall[spec["spec_id"]] = short
+            if short:
+                shortfall[spec["spec_id"]] = short
     if include_real:
         ids = r.real_listing_ids()
         cases = r.cases(ids)

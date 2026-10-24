@@ -54,13 +54,39 @@ class Tally:
                 "failures": self.failures, "by_model": self.by_model}
 
 
+CALL_DEADLINE_S = 300.0
+
+
+def _create(client, deadline: float, **kw):
+    """client.chat.completions.create with a wall-clock deadline. The client's own timeout bounds each socket wait,
+    not the whole call, and a silent Bitdeer request once held a run for 20 minutes. A call that overruns is
+    abandoned on a daemon thread (it can't be cancelled) and reported as a timeout."""
+    out: dict = {}
+
+    def call():
+        try:
+            out["resp"] = client.chat.completions.create(**kw)
+        except BaseException as e:  # handed to the caller below
+            out["err"] = e
+    t = threading.Thread(target=call, daemon=True)
+    t.start()
+    t.join(deadline)
+    if t.is_alive():
+        raise TimeoutError(f"Bitdeer call exceeded {deadline:.0f}s")
+    if "err" in out:
+        raise out["err"]
+    return out["resp"]
+
+
 def complete_json(client, model: str, messages: list[dict], temperature: float, tally: Tally,
-                  max_tokens: int = 12000, attempts: int = 3, sleep=time.sleep) -> dict | None:
-    """One chat completion parsed as JSON. Returns None after `attempts` failures (caller drops or retries the slots)."""
+                  max_tokens: int = 12000, attempts: int = 3, sleep=time.sleep,
+                  deadline: float | None = None) -> dict | None:
+    """One chat completion parsed as JSON. Returns None after `attempts` failures (caller drops or retries the slots).
+    Each attempt is cut off after `deadline` seconds (CALL_DEADLINE_S by default) and counts as a retryable failure."""
     for attempt in range(attempts):
         try:
-            resp = client.chat.completions.create(model=model, messages=messages, temperature=temperature,
-                                                  max_tokens=max_tokens, response_format={"type": "json_object"})
+            resp = _create(client, CALL_DEADLINE_S if deadline is None else deadline, model=model, messages=messages,
+                           temperature=temperature, max_tokens=max_tokens, response_format={"type": "json_object"})
             tally.add(model, getattr(resp, "usage", None))
             content = resp.choices[0].message.content or ""
             return json.loads(content)

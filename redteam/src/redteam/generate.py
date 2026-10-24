@@ -15,6 +15,8 @@ import json
 import random
 import sys
 from collections import Counter
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 
 from calhacks_contracts import AttackSpec, Listing
@@ -92,14 +94,23 @@ def _apply_llm(m: mutate.Mutation, base: Listing, out: dict, task: str | None,
     return text, reviews, ev
 
 
+MIN_CALL_S = 20.0  # don't start a Bitdeer request with less time than this left in the call's budget
+_BASE_LOCK = threading.Lock()  # base_use is shared by holdout specs generated in parallel
+
+
 def run_spec(spec: dict | AttackSpec, *, round_: int, r: Repo | None = None, client=None, write: bool = True,
              allow_holdout: bool = False, seed: int = 0, white_box: dict | None = None,
              models: list[str] | None = None, token_budget: int = 10 ** 12, id_prefix: str = "S",
-             base_use: Counter | None = None, max_per_base: int | None = None) -> dict:
+             base_use: Counter | None = None, max_per_base: int | None = None,
+             call_deadline: float | None = None, time_budget: float | None = None) -> dict:
     """Generate one AttackSpec's listings.
 
     base_use / max_per_base (the holdout): copies already made per base listing, shared across calls; each slot takes
-    one of the least-used eligible bases and no base gets more than max_per_base copies."""
+    one of the least-used eligible bases and no base gets more than max_per_base copies.
+
+    time_budget (MCP calls): seconds this call may spend. No Bitdeer request starts after it runs out and each request
+    is cut off at the time left, so the call returns in time; unfinished slots are dropped with the reason."""
+    stop_at = None if time_budget is None else time.monotonic() + time_budget
     s = parse_spec(spec, allow_holdout=allow_holdout)
     r = r or store.repo()
     refs: ReferenceSet = r.reference_snapshot()
@@ -121,16 +132,18 @@ def run_spec(spec: dict | AttackSpec, *, round_: int, r: Repo | None = None, cli
             dropped.append({"listing_id": lid, "family": fam,
                             "why": "no base listing priced within unknown_seller_cap_usd"})
             continue
-        if base_use is not None:
-            pool = [b for b in pool if max_per_base is None or base_use[b.listing_id] < max_per_base]
-            if not pool:
-                dropped.append({"listing_id": lid, "family": fam, "why": f"every eligible base has {max_per_base} copies"})
-                continue
-            low = min(base_use[b.listing_id] for b in pool)
-            pool = [b for b in pool if base_use[b.listing_id] == low]  # spread over as many bases as possible
-        base = rng.choice(pool)
-        if base_use is not None:
-            base_use[base.listing_id] += 1
+        with _BASE_LOCK:
+            if base_use is not None:
+                pool = [b for b in pool if max_per_base is None or base_use[b.listing_id] < max_per_base]
+                if not pool:
+                    dropped.append({"listing_id": lid, "family": fam,
+                                    "why": f"every eligible base has {max_per_base} copies"})
+                    continue
+                low = min(base_use[b.listing_id] for b in pool)
+                pool = [b for b in pool if base_use[b.listing_id] == low]  # spread over as many bases as possible
+            base = rng.choice(pool)
+            if base_use is not None:
+                base_use[base.listing_id] += 1
         srng = random.Random(_seed(s.spec_id, seed, i))
         try:
             m = mutate.apply(fam, base, refs, srng, others)
@@ -183,11 +196,20 @@ def run_spec(spec: dict | AttackSpec, *, round_: int, r: Repo | None = None, cli
                 if tally.total >= token_budget:
                     fails = [(p, "token budget exhausted") for p in pending]
                     break
+                deadline = call_deadline
+                if stop_at is not None:
+                    left = stop_at - time.monotonic()
+                    if left < MIN_CALL_S:
+                        fails = [(p, "call time budget reached; request these again") for p in pending]
+                        break
+                    deadline = min(deadline or bitdeer.CALL_DEADLINE_S, left)
+                tries = 3 if stop_at is None else 1  # under a time budget this loop is the only retry: each try re-checks the time left
                 slots = [prompts.LlmSlot(lid, m.llm_task, s.mode, b.item.product_key, b.item.condition, b.item.text,
                                          tuple(b.reviews)) for lid, _, b, m, _ in pending]
                 payload = bitdeer.complete_json(client, model, prompts.build_messages(slots, s.target_weakness,
                                                                                       white_box), temp, tally,
-                                                max_tokens=len(slots) * TOKENS_PER_SLOT)
+                                                max_tokens=len(slots) * TOKENS_PER_SLOT, deadline=deadline,
+                                                attempts=tries)
                 outs = prompts.parse_slots(payload) if payload is not None else {}
                 fails = []
                 for p in pending:

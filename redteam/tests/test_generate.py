@@ -1,3 +1,4 @@
+import time
 from calhacks_contracts import Listing
 import pytest
 
@@ -161,3 +162,35 @@ def test_rewrites_must_keep_the_base_listing_shape():
     assert any("reviews" in e for e in prompts.problems("fake_reviews", "mutate_real", base, ["r"] * 3, None, base, revs))
     assert not prompts.problems("fake_reviews", "mutate_real", base, ["r"] * 5, None, base, revs)
     assert not prompts.problems("fake_reviews", "mutate_real", base, ["r"] * 3, None, base, [])  # at least 3
+
+
+def test_time_budget_stops_new_requests_and_reports_the_rest(repo, fake_client, monkeypatch):
+    import redteam.generate as g
+    client = fake_client()
+    slow = client.create
+
+    def create(**kw):  # every request takes 0.4 s
+        time.sleep(0.4)
+        return slow(**kw)
+    client.chat.completions.create = create
+    monkeypatch.setattr(g, "MIN_CALL_S", 0.3)
+    monkeypatch.setattr(g, "CONCURRENCY", 1)
+    t0 = time.monotonic()
+    out = run_spec({**SPEC, "legit_ratio": 0}, round_=1, r=repo, client=client, time_budget=1.0)
+    assert time.monotonic() - t0 < 3
+    why = [d["why"] for d in out["_dropped"]]
+    assert out["kept"] > 0 and any("time budget" in w for w in why)
+    assert out["kept"] + out["dropped"] == 20
+
+
+def test_under_a_time_budget_the_client_does_not_retry_inside_a_request(repo, fake_client, monkeypatch):
+    """Inner retries each got the full time left, so a 120 s budget could run to several times that."""
+    import redteam.generate as g
+    seen = []
+    real = g.bitdeer.complete_json
+    monkeypatch.setattr(g.bitdeer, "complete_json", lambda *a, **k: seen.append(k.get("attempts")) or real(*a, **k))
+    run_spec({**SPEC, "legit_ratio": 0, "n": 3}, round_=1, r=repo, client=fake_client(), time_budget=60)
+    assert seen and set(seen) == {1}
+    seen.clear()
+    run_spec({**SPEC, "legit_ratio": 0, "n": 3}, round_=1, r=repo, client=fake_client())
+    assert set(seen) == {3}

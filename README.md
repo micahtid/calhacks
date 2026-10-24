@@ -429,7 +429,8 @@ listings live in MongoDB through `calhacks-contracts`; nothing is read from loca
   DeepSeek-V4.1-Flash in rotation). Bad LLM output is retried once, then dropped, and drops are counted per family.
 - **Holdout** (`redteam.holdout`): built once from the real listings, holding the two held-out families plus a slice
   of every other family, with text written by Nemotron. No base listing gets more than 3 copies (spread over as many
-  bases as there are); dropped LLM slots are re-requested a few times and any shortfall is recorded. It's stored
+  bases as there are); dropped LLM slots are re-requested twice and any shortfall is recorded. Families are
+  generated 4 at a time, and each Bitdeer call is cut off after 2 minutes (5 in rounds), so slow calls can't stall it. It's stored
   encrypted outside the repo with its simulated references, never in MongoDB, and scored in memory to totals only. The
   coordinator sees recall and false blocks; the operator also gets Layer 2 false blocks, policy-bounded recall, recall
   on seen vs held-out families and 95% intervals from a bootstrap clustered by base listing
@@ -440,10 +441,12 @@ listings live in MongoDB through `calhacks-contracts`; nothing is read from loca
   The coordinator never sees the held-out family names: they are not in its prompt, tools or coverage, asking for one
   gets the same "unknown family" error as a typo, and the guard hook blocks reading tests and whole-workspace searches.
   Attack success is recorded once per round by code: this round's scams scored with the model promoted at the round's
-  start (with a 95% interval); `score_round` is only a working view.
+  start (with a 95% interval; a resumed round keeps that model); `score_round` is only a working view.
 - **Coordinator** (`redteam.coordinator`): one Factory Droid SDK session per round on Bitdeer DeepSeek-V4.1-Flash, with
   a GLM-5.3 attack-strategist droid. It sees the world only through the stdio MCP tools (`get_round_input`,
-  `generate_attacks`, `score_round`, `inspect_failures`, `train_gate`, `eval_gate`, `promote_model`). A guard hook
+  `generate_attacks`, `score_round`, `inspect_failures`, `train_gate`, `eval_gate`, `promote_model`). Droid fails an
+  MCP call after 180 s and loses the server for the round, so `generate_attacks` runs one call at a time (a parallel
+  call is refused at once) and each call returns within about two minutes, listing slots it had no time for as dropped. A guard hook
   limits edits to `gate/features/<name>.py` and `gate/train_config.yaml`, and Gate subprocesses never receive the holdout key. Promotion (validation recall up, Layer 2 false blocks ≤ 2% — Layer 1 policy blocks such as unknown wallets over the cap are reported separately, no
   family down more than 5 points) and the `RoundReport` numbers are computed in code.
 - **Gate backend:** the real Gate in `gate/` (path dependency). `REDTEAM_GATE=stub` selects a fast stand-in used by unit tests.

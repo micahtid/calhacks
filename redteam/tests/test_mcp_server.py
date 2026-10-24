@@ -1,4 +1,5 @@
 """MCP tools on the issue #1 schemas: in-process round flow, and one run over real stdio like droid drives it."""
+import time
 import asyncio
 import json
 import os
@@ -106,3 +107,26 @@ def test_generate_calls_are_capped_to_stay_under_the_mcp_timeout(round1):
     wordy = mcp_server.generate_attacks({"family": "prompt_injection", "n": mcp_server.MAX_CALL_LLM + 5,
                                          "legit_ratio": 0})
     assert "text rewrites" in wordy["error"]
+
+
+def test_a_second_generate_call_while_one_runs_is_refused_at_once(round1):
+    assert mcp_server._GEN_LOCK.acquire(blocking=False)  # stands in for a call already running
+    try:
+        t0 = time.monotonic()
+        busy = mcp_server.generate_attacks({"family": "too_cheap", "n": 4})
+        assert "one at a time" in busy["error"] and time.monotonic() - t0 < 1
+    finally:
+        mcp_server._GEN_LOCK.release()
+    assert "error" not in mcp_server.generate_attacks({"family": "too_cheap", "n": 4})
+
+
+def test_generate_calls_carry_a_time_budget_under_the_droid_limit(round1, monkeypatch):
+    seen = {}
+    real = mcp_server.run_spec
+
+    def spy(*a, **kw):
+        seen.update(kw)
+        return real(*a, **kw)
+    monkeypatch.setattr(mcp_server, "run_spec", spy)
+    mcp_server.generate_attacks({"family": "too_cheap", "n": 4})
+    assert 0 < seen["time_budget"] <= 150

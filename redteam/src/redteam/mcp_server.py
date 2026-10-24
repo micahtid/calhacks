@@ -13,6 +13,7 @@ import functools
 import inspect
 import json
 import os
+import threading
 import time
 from collections import defaultdict
 
@@ -22,6 +23,8 @@ from redteam.config import BULK_MODELS, ROUND_BUDGET, legit_families, needs_llm,
 from redteam.generate import SpecError, run_spec
 
 MAX_CALL_LISTINGS = 60   # per generate_attacks call
+CALL_TIME_BUDGET_S = 120.0  # droid fails an MCP call at 180 s and the server is lost for the round; stay well under
+_GEN_LOCK = threading.Lock()  # one generation at a time: parallel calls slow each other past droid's limit
 MAX_CALL_LLM = 24        # listings per call that need Bitdeer text rewrites (~3 per request, run in parallel)
 
 NOT_BUILT = "not available: the storefront scam-store route (plan A4/B6) isn't built yet; judge offline instead"
@@ -70,7 +73,20 @@ def get_round_input() -> dict:
 def generate_attacks(spec: dict) -> dict:
     """Order test listings with an AttackSpec (issue #1): spec_id, family (or legit_hard), n, legit_ratio,
     mode (mutate_real|generate), base_listing_ids, target_weakness, attacker_knowledge (blind|white_box), model,
-    temperature. Returns counts, drops per family and cost."""
+    temperature. Returns counts, drops per family and cost. Send one call at a time: a call made while another is
+    running is refused at once. A call returns within about two minutes with whatever finished; slots it had no
+    time for are listed as dropped ("call time budget reached") and can be requested again."""
+    if not _GEN_LOCK.acquire(blocking=False):
+        return _log("generate_attacks", dict(spec or {}), {"error": (
+            "another generate_attacks call is still running; send generate_attacks calls one at a time and wait for "
+            "each to return")})
+    try:
+        return _generate_attacks(spec)
+    finally:
+        _GEN_LOCK.release()
+
+
+def _generate_attacks(spec: dict) -> dict:
     r = current_round()
     spec = {k: v for k, v in dict(spec or {}).items() if v is not None}  # null means "use the default"
     spec.setdefault("spec_id", f"R{r}-{spec.get('family', 'x')}-{int(time.time() * 1000) % 10 ** 8}")
@@ -108,7 +124,7 @@ def generate_attacks(spec: dict) -> dict:
         white_box = {"features": roundstate.current_model_features(model_id), "reasons": reasons}
     try:
         out = run_spec(spec, round_=r, white_box=white_box, seed=int(os.environ.get("REDTEAM_SEED", "0")),
-                       token_budget=ROUND_BUDGET["tokens"] - used["tokens"])
+                       token_budget=ROUND_BUDGET["tokens"] - used["tokens"], time_budget=CALL_TIME_BUDGET_S)
     except SpecError as e:
         return _log("generate_attacks", spec, {"error": str(e)})
     for k in ("_items", "_refs", "_dropped"):
