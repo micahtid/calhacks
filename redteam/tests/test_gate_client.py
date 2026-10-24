@@ -18,3 +18,5 @@ def test_subprocess_env_drops_holdout(monkeypatch):
     assert gate_client._run(["gate-train", "--round", "1"]) == {"model_id": "r1-x"}
     assert "HOLDOUT_KEY" not in seen and "CALHACKS_HOLDOUT" not in seen
     assert seen["MONGODB_DB_REDTEAM"] == "redteam_test" and seen["UV_SYSTEM_CERTS"] == "1"
+    from redteam.config import MODELS_DIR
+    assert seen["GATE_MODELS"] == str(MODELS_DIR)  # the Gate CLIs write where the red team reads
