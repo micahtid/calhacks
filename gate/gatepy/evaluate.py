@@ -1,88 +1,110 @@
-"""gate-eval: run the full Gate (Layer 1 then Layer 2) over labeled Snapshots and report metrics."""
+"""gate-eval: run the full Gate (Layer 1, then Layer 2 only where Layer 1 passes) and report RoundMetrics.
+
+  gate-eval --model MODEL_ID|promoted [--split train|val|all] [--ids FILE] [--query JSON] [--rows]
+  -> {"model_id", "metrics": RoundMetrics, "rows"?: [{"listing_id", "label", "family", "attacker_knowledge", "decision"}]}
+
+Data comes from MongoDB ($MONGODB_URI, database $MONGODB_DB_REDTEAM). Holdout rows never live there; score them
+in-process with evaluate(model, items, refs).
+"""
 import argparse
 import json
 import sys
+from pathlib import Path
 
-from gatepy.context import Ctx, load_ctx
-from gatepy.contracts import Snapshot
-from gatepy.dataset import GateInputError, featurize, load_snapshots
-from gatepy.layer1_bridge import run_layer1
+from calhacks_contracts import GateDecision, GateInput, RoundMetrics, rate
+from calhacks_contracts.db import ReferenceSet, Repo, get_db
+from calhacks_contracts.families import REAL_FAMILY
+
+from gatepy.dataset import Example, GateInputError, featurize, from_items, load_examples, to_inputs
+from gatepy.layer1_bridge import failed_rule, passed, run_layer1
 from gatepy.model_io import Model, load
 from gatepy.registry import discover, select
 from gatepy.splits import split_of
 
 
-def decide(model: Model, snaps: list[Snapshot], ctx: Ctx, l1: list[dict] | None = None) -> list[dict]:
-    """One decision row per snapshot (decision JSON from interfaces.md, plus id/family/label)."""
-    l1 = l1 if l1 is not None else run_layer1(snaps)
-    X = featurize(snaps, ctx, select(model.features))
-    risk = model.predict_risk(X)
-    contrib = model.contributions(X)
-    rows = []
-    for i, s in enumerate(snaps):
-        r = float(risk[i])
-        if not l1[i]["pass"]:
-            decision, layer = "skip", "L1"
-        elif r >= model.threshold:
-            decision, layer = "skip", "L2"
-        else:
-            decision, layer = "buy", None
-        rows.append({
-            "id": s.id, "family": s.family, "label": s.label, "decision": decision, "layer": layer,
-            "l1_failures": l1[i]["failures"], "risk": round(r, 6), "threshold": model.threshold,
-            "model_id": model.model_id, "top3": model.top3(X[i], contrib[i]),
-        })
-    return rows
-
-
-def _rate(hits: int, total: int) -> float | None:
-    return round(hits / total, 4) if total else None
-
-
-def metrics(rows: list[dict], with_rows: bool = False) -> dict:
-    rows = [r for r in rows if r["label"] in ("scam", "legit")]
-    scam = [r for r in rows if r["label"] == "scam"]
-    legit = [r for r in rows if r["label"] == "legit"]
-    skipped = lambda rs: sum(r["decision"] == "skip" for r in rs)  # noqa: E731
-    scam_l2 = [r for r in scam if r["layer"] != "L1"]
-    legit_l2 = [r for r in legit if r["layer"] != "L1"]
-    per_family = {}
-    for fam in sorted({r["family"] for r in rows}):
-        rs = [r for r in rows if r["family"] == fam]
-        key = "recall" if rs[0]["label"] == "scam" else "fpr"
-        per_family[fam] = {"n": len(rs), key: _rate(skipped(rs), len(rs))}
-    out = {
-        "n": len(rows), "n_scam": len(scam), "n_legit": len(legit),
-        "recall": _rate(skipped(scam), len(scam)), "fpr": _rate(skipped(legit), len(legit)),
-        "recall_l2": _rate(skipped(scam_l2), len(scam_l2)), "fpr_l2": _rate(skipped(legit_l2), len(legit_l2)),
-        "l1_catches": len(scam) - len(scam_l2), "l1_false_blocks": len(legit) - len(legit_l2),
-        "per_family": per_family,
-    }
-    if with_rows:
-        out["rows"] = [{k: r[k] for k in ("id", "family", "label", "decision", "layer", "risk", "top3")} for r in rows]
+def decide(model: Model, inputs: list[GateInput], l1=None) -> list[GateDecision]:
+    """One GateDecision per input. Layer 2 runs only on inputs that pass every Layer 1 check."""
+    l1 = l1 if l1 is not None else run_layer1(inputs)
+    reach = [i for i, checks in enumerate(l1) if passed(checks)]
+    X = featurize([inputs[i] for i in reach], select(model.features))
+    risk, contrib = model.predict_risk(X), model.contributions(X)
+    l2 = {i: (float(risk[j]), model.top3(X[j], contrib[j])) for j, i in enumerate(reach)}
+    out = []
+    for i, checks in enumerate(l1):
+        if i not in l2:
+            out.append(GateDecision(decision="skip", decided_by="layer1", failed_rule=failed_rule(checks),
+                                    model_version=model.model_id, checks=checks))
+            continue
+        r, top = l2[i]
+        skip = r >= model.threshold
+        out.append(GateDecision(decision="skip" if skip else "buy", decided_by="layer2" if skip else None,
+                                risk_score=round(r, 6), threshold=model.threshold, top_reasons=top,
+                                model_version=model.model_id, checks=checks))
     return out
 
 
-def evaluate(model: Model, snaps: list[Snapshot], ctx: Ctx, l1: list[dict] | None = None,
-             with_rows: bool = False) -> dict:
-    return {"model_id": model.model_id, **metrics(decide(model, snaps, ctx, l1), with_rows)}
+def round_metrics(examples: list[Example], decisions: list[GateDecision]) -> RoundMetrics:
+    pairs = list(zip(examples, decisions))
+    scam = [(e, d) for e, d in pairs if e.key.label == "scam"]
+    legit = [(e, d) for e, d in pairs if e.key.label == "legit"]
+
+    def skip_rate(ps):
+        return rate(sum(d.decision == "skip" for _, d in ps), len(ps))
+
+    white_box = [(e, d) for e, d in scam if e.key.attacker_knowledge == "white_box"]
+    return RoundMetrics(
+        layer1_catches=sum(d.decided_by == "layer1" for _, d in scam),
+        layer2_recall=skip_rate([(e, d) for e, d in scam if d.decided_by != "layer1"]),
+        fpr_real=skip_rate([(e, d) for e, d in legit if e.key.family == REAL_FAMILY]),
+        per_family={f: skip_rate([(e, d) for e, d in pairs if e.key.family == f])
+                    for f in sorted({e.key.family for e in examples})},
+        adaptive_recall=skip_rate(white_box) if white_box else None,
+        recall=skip_rate(scam),
+        fpr=skip_rate(legit),
+    )
+
+
+def evaluate_examples(model: Model, examples: list[Example], refs: ReferenceSet, with_rows: bool = False,
+                      l1=None) -> dict:
+    decisions = decide(model, to_inputs(examples, refs), l1)
+    out = {"model_id": model.model_id, "metrics": round_metrics(examples, decisions).model_dump(mode="json")}
+    if with_rows:
+        out["rows"] = [{"listing_id": e.id, "label": e.key.label, "family": e.key.family,
+                        "attacker_knowledge": e.key.attacker_knowledge, "decision": d.model_dump(mode="json")}
+                       for e, d in zip(examples, decisions)]
+    return out
+
+
+def evaluate(model: Model, items, refs: ReferenceSet, with_rows: bool = False) -> dict:
+    """In-process scoring of (Listing, Case | None, AnswerKey) tuples, e.g. the decrypted holdout with its own
+    simulated references overlaid on `refs`. Nothing is read from or written to MongoDB."""
+    return evaluate_examples(model, from_items(items), refs, with_rows)
+
+
+def get_repo() -> Repo:
+    return Repo(get_db())
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(prog="gate-eval", description=__doc__)
+    ap = argparse.ArgumentParser(prog="gate-eval", description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--model", default="promoted")
-    ap.add_argument("--data", nargs="+", required=True)
     ap.add_argument("--split", choices=["train", "val", "all"], default="all")
+    ap.add_argument("--ids", type=Path, help="file with one listing_id per line")
+    ap.add_argument("--query", help="JSON filter on the answer_keys collection")
     ap.add_argument("--rows", action="store_true")
     a = ap.parse_args(argv)
     try:
         discover()
         model = load(a.model)
-        snaps = load_snapshots(a.data)
+        query = json.loads(a.query) if a.query else {}
+        if a.ids:
+            query["_id"] = {"$in": [x.strip() for x in a.ids.read_text(encoding="utf-8").splitlines() if x.strip()]}
+        repo = get_repo()
+        examples = load_examples(repo, query)
         if a.split != "all":
-            snaps = [s for s in snaps if split_of(s.id) == a.split]
-        result = evaluate(model, snaps, load_ctx(), with_rows=a.rows)
-    except (GateInputError, FileNotFoundError, KeyError) as e:
+            examples = [e for e in examples if split_of(e.id) == a.split]
+        result = evaluate_examples(model, examples, repo.reference_snapshot(), with_rows=a.rows)
+    except (GateInputError, FileNotFoundError, KeyError, json.JSONDecodeError) as e:
         print(json.dumps({"error": str(e)}))
         return 2
     print(json.dumps(result))

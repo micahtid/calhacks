@@ -6,6 +6,7 @@ from pathlib import Path
 
 import lightgbm as lgb
 import numpy as np
+from calhacks_contracts import Reason
 
 from gatepy import GATE_DIR, MODELS
 
@@ -50,9 +51,11 @@ class Model:
             return self._booster.predict(X, pred_contrib=True)[:, :-1]
         return self._raw(X) * np.array(self.meta["coef"]["weights"])
 
-    def top3(self, x: np.ndarray, contrib: np.ndarray) -> list[list]:
+    def top3(self, x: np.ndarray, contrib: np.ndarray) -> list[Reason]:
+        """The three features that moved this listing's risk the most (G5)."""
         order = np.argsort(-np.abs(contrib), kind="stable")[:3]
-        return [[self.features[i], round(float(x[i]), 4), round(float(contrib[i]), 4)] for i in order]
+        return [Reason(feature=self.features[i], value=round(float(x[i]), 4), contribution=round(float(contrib[i]), 4))
+                for i in order]
 
 
 def from_meta(meta: dict) -> Model:
