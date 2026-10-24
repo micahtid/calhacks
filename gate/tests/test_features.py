@@ -1,64 +1,81 @@
+import pytest
+
+from features import _text
 from gatepy.registry import REGISTRY
 
 
-def f(name, snap, ctx):
-    return REGISTRY[name].fn(snap, ctx)
+def f(name, x):
+    return REGISTRY[name].fn(x)
 
 
-def test_price_features(ex, ctx):
-    cheap = ex["ex-too-cheap"]
-    assert f("price_ratio", cheap, ctx) == cheap.item.priceUsd / ctx.median(cheap.item.id)
-    assert f("amount_vs_listed", ex["ex-legit-plain"], ctx) == 1.0
+def test_price_features(inputs):
+    x = inputs["S-0004"]
+    assert f("price_ratio", x) == pytest.approx(49 / 180)
+    assert f("price_too_low", x) == 1.0
+    assert f("price_too_low", inputs["R-0001"]) == 0.0
 
 
-def test_unknown_item_and_empty_reference_data_are_neutral(ex, ctx):
-    """Listings may come from any source: an item with no median, or no known sellers at all, must not crash."""
-    import dataclasses
-    import math
-
-    from gatepy.registry import select, self_test
-
-    s = ex["ex-legit-plain"].model_copy(deep=True)
-    s.item.id = s.checkout_item_id = "some-item-no-source-has-priced"
-    assert f("price_ratio", s, ctx) == 1.0
-    assert f("median_known", s, ctx) == 0.0
-    empty = dataclasses.replace(ctx, medians={}, known_sellers=[], injection_patterns=[], zero_width_chars=[])
-    assert self_test(select("all"), [s, *ex.values()], empty) == []
-    assert all(math.isfinite(feat.fn(s, empty)) for feat in select("all"))
-    assert f("payto_known", s, empty) == 0.0
-    assert f("store_name_similarity_to_known", s, empty) == 0.0
+def test_unpriced_product_is_neutral(inputs):
+    x = inputs["R-0001"].model_copy(deep=True)
+    x.references.market_median = None
+    assert f("price_ratio", x) == 1.0 and f("price_too_low", x) == 0.0 and f("has_median", x) == 0.0
 
 
-def test_seller_features(ex, ctx):
-    assert f("seller_age_years", ex["ex-legit-plain"], ctx) == 7.0
-    assert f("seller_age_years", ex["ex-legit-new-honest-seller"], ctx) == 0.0
+def test_trust_features(inputs):
+    assert f("known_wallet", inputs["R-0001"]) == 1.0
+    assert f("known_wallet", inputs["S-0004"]) == 0.0
+    assert f("crs_verified", inputs["S-0004"]) == 1.0
+    assert f("crs_verified", inputs["R-0001"]) == 0.0
+    assert f("crs_days_verified", inputs["R-0001"]) == 0.0
+    x = inputs["S-0004"].model_copy(deep=True)
+    x.references.pay_to_first_seen = "2000-01-01"
+    assert f("payto_age_days", x) > 3000
+    assert f("payto_age_days", inputs["S-0004"]) == 0.0
 
 
-def test_review_features(ex, ctx):
-    assert f("review_dup_max", ex["ex-fake-reviews"], ctx) == 1.0
-    assert f("review_dup_max", ex["ex-legit-plain"], ctx) < 0.3
-    assert f("unverified_frac", ex["ex-fake-reviews"], ctx) == 1.0
-    assert f("review_recent_frac", ex["ex-fake-reviews"], ctx) == 1.0
+def test_lookalike_wallet_and_exact_match_excluded(inputs):
+    assert f("payto_lookalike", inputs["S-0002"]) == 1.0
+    assert f("payto_affix_match", inputs["S-0002"]) == 8.0
+    assert f("payto_lookalike", inputs["R-0001"]) == 0.0
+    assert f("payto_affix_match", inputs["R-0001"]) < 8.0
 
 
-def test_injection_features(ex, ctx):
-    assert f("injection_hits", ex["ex-prompt-injection"], ctx) >= 1
-    assert f("imperative_to_agent", ex["ex-prompt-injection"], ctx) >= 1
-    for clean in ("ex-legit-plain", "ex-legit-new-honest-seller"):
-        assert f("injection_hits", ex[clean], ctx) == 0
-        assert f("imperative_to_agent", ex[clean], ctx) == 0
+def test_domain_closeness(inputs):
+    assert f("domain_known", inputs["R-0001"]) == 1.0
+    assert f("domain_similarity_to_known", inputs["R-0001"]) < 0.6
+    x = inputs["R-0001"].model_copy(deep=True)
+    x.listing.seller.domain = "orbit-goods.example"
+    assert f("domain_known", x) == 0.0 and f("domain_similarity_to_known", x) > 0.9
 
 
-def test_payment_and_name_features(ex, ctx):
-    assert f("payto_known", ex["ex-legit-plain"], ctx) == 1.0
-    assert f("payto_min_hamming_to_known", ex["ex-legit-plain"], ctx) == 0.0
-    assert f("payto_store_match", ex["ex-payment-mismatch"], ctx) == 0.0
-    assert f("store_name_similarity_to_known", ex["ex-lookalike-payto"], ctx) == 1.0
-    assert f("store_name_similarity_to_known", ex["ex-legit-plain"], ctx) == 0.0
+def test_injection_and_hidden_text(inputs):
+    assert f("injection_hits_text", inputs["S-0005"]) >= 1
+    assert f("imperative_to_agent", inputs["S-0005"]) >= 1
+    assert f("injection_hits_text", inputs["R-0001"]) == 0
+    hidden = inputs["S-0006"]
+    assert f("hidden_chars", hidden) >= 3
+    assert f("injection_hits_text", hidden) >= 1, "normalization must expose text hidden by zero-width characters"
+    assert f("hidden_chars", inputs["R-0001"]) == 0
 
 
-def test_urgency(ex, ctx):
-    s = ex["ex-legit-plain"].model_copy(deep=True)
-    assert f("urgency_hits", s, ctx) == 0
-    s.item.description += " Only 1 left, price expires within 10 minutes. Hurry!"
-    assert f("urgency_hits", s, ctx) >= 3
+def test_mixed_script_words(inputs):
+    x = inputs["R-0001"].model_copy(deep=True)
+    x.listing.item.text = "Sоny headphones"  # Cyrillic o
+    assert f("mixed_script_words", x) == 1.0
+    assert f("mixed_script_words", inputs["R-0001"]) == 0.0
+
+
+def test_review_similarity_and_embedding_hook(inputs):
+    assert f("review_similarity_max", inputs["S-0007"]) > 0.7
+    assert f("review_similarity_max", inputs["R-0001"]) < 0.3
+    a, b = inputs["R-0001"].listing.reviews
+    _text.EMBEDDINGS.update({_text.text_key(a): [1.0, 0.0], _text.text_key(b): [1.0, 0.0]})
+    try:
+        assert f("review_similarity_max", inputs["R-0001"]) == pytest.approx(1.0)
+    finally:
+        _text.EMBEDDINGS.clear()
+
+
+def test_features_never_see_answer_info(inputs):
+    x = inputs["S-0005"]
+    assert not hasattr(x, "answer_key") and set(type(x).model_fields) == {"mandate", "listing", "references"}

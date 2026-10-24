@@ -1,18 +1,17 @@
-from gatepy.contracts import examples
-from gatepy.layer1_bridge import run_layer1
+from gatepy.layer1_bridge import failed_rule, passed, run_layer1
+from gatepy.selftest import fixture_inputs
 
 
-def test_bridge_runs_typescript_rules_on_examples():
-    snaps = examples()
-    results = {r["id"]: r for r in run_layer1(snaps)}
-    assert [r for r in results] == [s.id for s in snaps]
-    assert results["ex-legit-plain"] == {"id": "ex-legit-plain", "pass": True, "failures": []}
-    assert results["ex-payment-mismatch"]["failures"] == ["L1_PAYTO_MISMATCH"]
-    assert results["ex-lookalike-payto"]["failures"] == ["L1_PAYTO_LOOKALIKE"]
-    assert results["ex-bait-and-switch"]["failures"] == ["L1_ITEM_MISMATCH"]
-    for text_scam in ("ex-too-cheap", "ex-prompt-injection", "ex-fake-reviews"):
-        assert results[text_scam]["pass"], "text tactics are Layer 2's job"
+def test_bridge_runs_typescript_rules_in_order():
+    xs = fixture_inputs()
+    results = dict(zip([x.listing.listing_id for x in xs], run_layer1(xs)))
+    assert passed(results["R-0001"]) and failed_rule(results["R-0001"]) is None
+    assert failed_rule(results["S-0001"]) == "L1_PAYTO_MISMATCH"
+    assert failed_rule(results["S-0002"]) == "L1_SELLER_UNTRUSTED"
+    assert failed_rule(results["S-0003"]) == "L1_ITEM_MISMATCH"
+    assert failed_rule(results["S-0010"]) == "L1_PRODUCT_MISMATCH"
+    assert len(results["R-0001"]) == 11
 
 
-def test_bridge_handles_empty_batch():
+def test_empty_batch():
     assert run_layer1([]) == []

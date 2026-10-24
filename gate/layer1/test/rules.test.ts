@@ -18,7 +18,7 @@ const EXPECTED: Record<string, string[]> = {
   "S-0001": ["L1_PAYTO_MISMATCH", "L1_SELLER_UNTRUSTED", "L1_UNKNOWN_SELLER_CAP"],
   "S-0002": ["L1_SELLER_UNTRUSTED", "L1_UNKNOWN_SELLER_CAP"],
   "S-0003": ["L1_ITEM_MISMATCH"],
-  "S-0004": ["L1_UNKNOWN_SELLER_CAP"],
+  "S-0004": [], // $49 CRS-only seller: under the $100 cap, so Layer 2 decides
   "S-0005": [],
   "S-0006": [],
   "S-0007": [],
@@ -40,6 +40,14 @@ for (const [id, want] of Object.entries(EXPECTED)) {
     assert.equal(failedRule(r), want[0] ?? null);
   });
 }
+
+test("a CRS-verified unknown seller above the cap is blocked", () => {
+  const x = byId("S-0004");
+  x.listing.item.price = 150;
+  x.listing.checkout.amount = "150000000";
+  x.mandate.max_price = 500;
+  assert.deepEqual(failures(x), ["L1_UNKNOWN_SELLER_CAP"]);
+});
 
 test("a CRS-verified unknown seller under the cap passes", () => {
   const x = byId("S-0004");

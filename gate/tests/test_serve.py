@@ -1,36 +1,63 @@
 import shutil
 
+from calhacks_contracts import GateDecision
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from gatepy import GATE_DIR
 from gatepy.model_io import read_promoted, restore_features, set_promoted
-from gatepy.serve import DECISION_KEYS, Gate, make_router
+from gatepy.serve import Gate, make_router
+
+KNOWN = "0x1111aAaA2222bBbB3333cCcC4444dDdD5555eEe1"
 
 
-def test_score_returns_decision_contract(trained, models_dir, ex):
-    gate = Gate(trained["model_id"], models_dir)
-    d = gate.score(ex["ex-legit-plain"])
-    assert tuple(d) == DECISION_KEYS
-    assert d["decision"] == "buy" and d["layer"] is None
-    d = gate.score(ex["ex-payment-mismatch"].model_dump())
-    assert d == {**d, "decision": "skip", "layer": "L1", "l1_failures": ["L1_PAYTO_MISMATCH"]}
+def request(repo, listing_id, **mandate):
+    case = repo.case(listing_id)
+    return {"mandate": {**case.mandate.model_dump(), **mandate}, "proposal": {"listing_id": listing_id},
+            "references": {"known_sellers": []}}
 
 
-def test_score_handles_item_without_median(trained, models_dir, ex):
-    s = ex["ex-legit-plain"].model_copy(deep=True)
-    s.item.id = s.checkout_item_id = "item-from-another-source"
-    d = Gate(trained["model_id"], models_dir).score(s)
-    assert d["l1_failures"] == [] and 0.0 <= d["risk"] <= 1.0
+def honest_known_listing(repo):
+    known = {k.pay_to.lower() for k in repo.known_sellers()}
+    return next(k.listing_id for k in repo.answer_keys({"family": "real"})
+                if repo.get_listing(k.listing_id).checkout.pay_to.lower() in known)
 
 
-def test_router_fails_closed(trained, models_dir, ex):
+def test_score_fetches_listing_and_references_itself(trained, models_dir, repo):
+    gate = Gate(trained["model_id"], models_dir, repo=repo)
+    lid = honest_known_listing(repo)
+    d = gate.score(request(repo, lid))
+    assert isinstance(d, GateDecision)
+    # The request's (empty) known_sellers are ignored: the Gate's own lookup finds the known wallet.
+    assert next(c for c in d.checks if c.rule == "L1_SELLER_UNTRUSTED").passed
+    assert d.model_version == trained["model_id"]
+
+
+def test_score_applies_mandate(trained, models_dir, repo):
+    gate = Gate(trained["model_id"], models_dir, repo=repo)
+    lid = honest_known_listing(repo)
+    d = gate.score(request(repo, lid, max_price=0.01))
+    assert d.decision == "skip" and d.decided_by == "layer1" and d.failed_rule == "L1_OVER_MAX"
+
+
+def test_custom_fetch_without_db_refs_uses_request_references(trained, models_dir, repo):
+    lid = honest_known_listing(repo)
+    listing = repo.get_listing(lid)
+    gate = Gate(trained["model_id"], models_dir, fetch=lambda _id: listing, use_db_refs=False)
+    req = request(repo, lid)
+    d = gate.score(req)
+    assert d.failed_rule in ("L1_SELLER_UNTRUSTED", "L1_UNKNOWN_SELLER_CAP")  # no known sellers supplied
+
+
+def test_router_fails_closed(trained, models_dir, repo):
     app = FastAPI()
-    app.include_router(make_router(Gate(trained["model_id"], models_dir)))
+    app.include_router(make_router(Gate(trained["model_id"], models_dir, repo=repo)))
     client = TestClient(app)
-    ok = client.post("/gate/risk", json=ex["ex-legit-plain"].model_dump())
-    assert ok.status_code == 200 and ok.json()["model_id"] == trained["model_id"]
-    bad = client.post("/gate/risk", json={"id": "broken"})
+    ok = client.post("/gate/risk", json=request(repo, honest_known_listing(repo)))
+    assert ok.status_code == 200 and ok.json()["model_version"] == trained["model_id"]
+    missing = client.post("/gate/risk", json=request(repo, honest_known_listing(repo)) | {"proposal": {"listing_id": "nope"}})
+    assert missing.status_code == 503 and missing.json()["decision"] == "skip"
+    bad = client.post("/gate/risk", json={"proposal": {"listing_id": "x"}})
     assert bad.status_code == 503 and bad.json()["decision"] == "skip"
 
 
