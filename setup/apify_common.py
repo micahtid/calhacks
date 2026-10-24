@@ -45,6 +45,19 @@ def load_env() -> str:
     return token
 
 
+class ApifyError(SystemExit):
+    """An Apify API error response. Still a SystemExit, so an unhandled one stops the script cleanly."""
+
+    def __init__(self, code: int, message: str):
+        super().__init__(f"Apify {code}: {message}")
+        self.code, self.message = code, message
+
+    @property
+    def at_account_limit(self) -> bool:
+        """The run was refused, not started, because the account is at its run or memory limit."""
+        return self.code == 402 and ("concurrent Actor runs" in self.message or "memory limit" in self.message)
+
+
 def api(token: str, path: str, body: dict | None = None):
     """Call the Apify API. GETs retry through network blips (DNS, resets, timeouts).
 
@@ -62,7 +75,7 @@ def api(token: str, path: str, body: dict | None = None):
             with urllib.request.urlopen(req, timeout=60) as res:
                 return json.load(res)
         except urllib.error.HTTPError as e:
-            raise SystemExit(f"Apify {e.code}: {e.read().decode()}")
+            raise ApifyError(e.code, e.read().decode())
         except (urllib.error.URLError, OSError) as e:  # DNS failure, connection reset, timeout
             if attempt == attempts:
                 raise SystemExit(f"Apify unreachable after {attempts} attempts: {e}")
@@ -78,7 +91,9 @@ class Gate:
     (up to MAX_RUN_MB) that still leaves RESERVE_MB for every other free slot, so 5 runs land at
     4+4+4+2+2 GB. Memory is free on these pay-per-event actors and buys CPU, so we use all of it.
     Lower `priority` goes first (search pages before reviews), ties in arrival order.
-    Only runs started in this process are counted: run all marketplaces from scrape_all.py.
+    Only runs started in this process are counted: run all marketplaces from scrape_all.py. Runs
+    started elsewhere on the account (other people, other scripts) are handled by _start_run
+    waiting and retrying when Apify refuses a start.
     """
 
     SLOTS, MEMORY_MB, RESERVE_MB, MAX_RUN_MB = 5, 16384, 2048, 4096  # /users/me/limits
@@ -136,12 +151,33 @@ def scrape(token: str, actor: str, input: dict, noun: str, timeout: int | None =
         return _scrape(token, actor, input, noun, timeout, memory)
 
 
+START_WAIT_S, START_WAIT_MAX_S = 15, 30 * 60
+
+
+def _start_run(token: str, path: str, input: dict, noun: str) -> dict:
+    """Start a run, waiting while the account is at its limit because of runs we don't control.
+
+    A refused start never created a run, so retrying it cannot start a duplicate.
+    """
+    waited = 0
+    while True:
+        try:
+            return api(token, path, input)["data"]
+        except ApifyError as e:
+            if not e.at_account_limit or waited >= START_WAIT_MAX_S:
+                raise
+            if waited == 0:
+                print(f"{noun}: Apify account at its run limit (other runs on the account), waiting")
+            time.sleep(START_WAIT_S)
+            waited += START_WAIT_S
+
+
 def _scrape(token: str, actor: str, input: dict, noun: str, timeout: int | None, memory: int) -> list[dict]:
     # ponytail: 1s polling, so per-item times are only accurate to ~1s
     print(f"\n== {actor} ({noun}, {memory} MB)")
     t0 = time.perf_counter()
     options = "&".join(f"{k}={v}" for k, v in (("timeout", timeout), ("memory", memory)) if v)
-    run = api(token, f"/acts/{actor}/runs?{options}", input)["data"]
+    run = _start_run(token, f"/acts/{actor}/runs?{options}", input, noun)
     print(f"[{time.perf_counter() - t0:6.1f}s] run {run['id']} created")
 
     items: list[dict] = []
@@ -258,6 +294,10 @@ def mongo():
     return db
 
 
+def save_listings(db, batch: list[dict]) -> None:
+    db.listings.bulk_write([ReplaceOne({"_id": l["id"]}, {"_id": l["id"], **l}, upsert=True) for l in batch])
+
+
 def parse_args(description: str) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=description)
     parser.add_argument("--count", type=int, default=DEFAULT_COUNT, help="new listings to collect per marketplace")
@@ -294,12 +334,9 @@ def run(marketplace: str, fetch, external_id, build, page_size: int | None,
 
     raw, listings = [], []
 
-    def save_listings(batch: list[dict]) -> None:
-        db.listings.bulk_write([ReplaceOne({"_id": l["id"]}, {"_id": l["id"], **l}, upsert=True) for l in batch])
-
     def enrich_and_save(l: dict) -> None:
         enrich_one(token, l)
-        save_listings([l])
+        save_listings(db, [l])
 
     # enough workers to keep every gate slot busy; GATE decides how many actually run
     with ThreadPoolExecutor(max_workers=Gate.SLOTS) as background:
@@ -307,7 +344,7 @@ def run(marketplace: str, fetch, external_id, build, page_size: int | None,
 
         def on_batch(items: list[dict]) -> None:
             batch = build(token, items)
-            save_listings(batch)
+            save_listings(db, batch)
             raw.extend(items)
             listings.extend(batch)
             print(f"-> {len(batch)} {marketplace} listings saved to MongoDB ({len(listings)}/{count})")
@@ -441,4 +478,24 @@ if __name__ == "__main__":
     review.join()
     page.join()
     assert order == ["page", "review"], order
+
+    # a start refused for the account's run limit waits and retries; any other error does not
+    limit = ApifyError(402, '{"message": "By launching this job you will exceed your limit of 5 concurrent Actor runs."}')
+    assert limit.at_account_limit and not ApifyError(402, "Insufficient credit").at_account_limit
+    calls, real_api, START_WAIT_S = [], api, 0
+
+    def flaky_api(token, path, body=None):
+        calls.append(path)
+        if len(calls) < 3:
+            raise limit
+        return {"data": {"id": "run1"}}
+    api = flaky_api
+    assert _start_run("t", "/acts/x/runs", {}, "test")["id"] == "run1" and len(calls) == 3
+    api = lambda *a, **k: (_ for _ in ()).throw(ApifyError(400, "bad input"))
+    try:
+        _start_run("t", "/acts/x/runs", {}, "test")
+        raise AssertionError("a non-limit error must not be retried")
+    except ApifyError as e:
+        assert e.code == 400
+    api = real_api
     print("ok")
