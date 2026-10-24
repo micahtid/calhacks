@@ -85,10 +85,18 @@ def test_rate_wilson_interval():
     assert rate(0, 0).hi == 1.0
 
 
-def test_split_is_deterministic():
+def test_split_is_deterministic_grouped_and_three_way():
     assert split_of("S-0001") == split_of("S-0001")
-    vals = [split_of(f"x-{i}") for i in range(1000)]
-    assert 150 < vals.count("val") < 250
+    vals = [split_of(f"x-{i}") for i in range(2000)]
+    assert 300 < vals.count("val") < 500 and 120 < vals.count("calibrate") < 280
+    # copies of one base listing always share its side
+    for b in (f"R-{i}" for i in range(50)):
+        assert {split_of(f"S-{b}-{j}", b) for j in range(5)} == {split_of(b)}
+
+
+def test_policy_bounded_families():
+    from calhacks_contracts.families import policy_bounded_families
+    assert policy_bounded_families() == {"unknown_seller"}
 
 
 def test_repo_round_trip_and_references(repo):

@@ -85,6 +85,7 @@ export interface RoundMetrics {
   recall: Rate;
   fpr: Rate;
   layer2_fpr?: Rate | null; // the trained model's false blocks; Layer 1 policy blocks excluded
+  policy_bounded_recall?: Rate | null; // policy-bounded families (unknown_seller), excluded from recall
 }
 
 export interface AttackSpec {

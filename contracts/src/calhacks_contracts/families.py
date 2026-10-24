@@ -30,6 +30,12 @@ def legit_hard() -> tuple[str, ...]:
     return tuple(_load("families.json")["legit_hard"])
 
 
+@cache
+def policy_bounded_families() -> frozenset[str]:
+    """Families reported apart from recall: bounded by policy (the unknown-seller cap), not learnable today."""
+    return frozenset(f["id"] for f in _load("families.json")["families"] if f.get("policy_bounded"))
+
+
 REAL_FAMILY = "real"
 
 

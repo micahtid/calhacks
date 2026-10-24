@@ -28,7 +28,9 @@ Collections and their documents are listed in `calhacks_contracts/db.py`. In sho
 - **Getting data in:** `contracts-ingest` is the only way in for real data (`listings`, `known-sellers`, `medians`).
   Real listings are recorded as honest (`answer_keys.family = "real"`). Synthetic listings are written by
   `redteam` through `Repo.put_synthetic`.
-- **Train/val split:** `calhacks_contracts.splits.split_of(listing_id)`.
+- **Splits:** `calhacks_contracts.splits.split_of(listing_id, base_listing_id)`: train 70% / calibrate 10% / val 20%,
+  by group (a synthetic listing goes with its real base listing), so copies of one listing never span sides. Fit on
+  train, pick the threshold on calibrate, decide promotion on val.
 
 ## Gate resolution
 
@@ -88,6 +90,8 @@ gate-eval --model MODEL_ID|promoted [--split train|val|all] [--ids FILE] [--rows
 listings only), `per_family`, `adaptive_recall` (white_box attacks), `recall`, `fpr`, and `layer2_fpr` (false blocks among
 legit listings that pass Layer 1), each a `Rate` with a Wilson 95% interval. The promotion rule's false-block bound uses
 `layer2_fpr`: Layer 1 policy blocks (unknown wallets over the cap) are by design and are reported in `fpr` / `fpr_real`.
+Policy-bounded scam families (`families.json` `policy_bounded`, today `unknown_seller`) are excluded from `recall` and
+`layer2_recall` and reported in `policy_bounded_recall`.
 
 In-process equivalents for the red-team MCP server: `gatepy.evaluate.evaluate(model, items, refs)` where `items` are
 `(Listing, Case, AnswerKey)` tuples, so the holdout can be scored without touching MongoDB.
