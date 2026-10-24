@@ -4,7 +4,8 @@
   "workspaces": [
     "apps/store-a",
     "apps/store-b",
-    "apps/store-c"
+    "apps/store-c",
+    "gate/layer1"
   ],
   "scripts": {
     "dev": "concurrently -n agent,store-a,store-b,store-c \"npm run dev:agent\" \"npm run dev:store-a\" \"npm run dev:store-b\" \"npm run dev:store-c\"",
@@ -13,7 +14,8 @@
     "dev:store-b": "npm run dev -w store-b",
     "dev:store-c": "npm run dev -w store-c",
     "build": "npm run build --workspaces",
-    "lint": "npm run lint --workspaces"
+    "lint": "npm run lint --workspaces",
+    "test:gate-l1": "npm test -w @calhacks/gate-layer1"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"
