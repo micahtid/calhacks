@@ -1,0 +1,118 @@
+"""The red team's MongoDB handle, plus round bookkeeping on top of calhacks_contracts.db.Repo.
+
+Round membership: every synthetic listing's GenInfo.spec_id points at a `specs` document carrying its round.
+Real listings (answer key family "real") belong to every round.
+
+Tests: REDTEAM_MONGOMOCK=1 makes repo() an in-memory mongomock database seeded from contracts/tests/fixtures
+(used by subprocess tests such as the stdio MCP server test). Never set it for real runs.
+"""
+import json
+import os
+from collections import Counter
+from collections.abc import Iterable
+from datetime import datetime, timezone
+
+from calhacks_contracts import AnswerKey, Case, CrsResult, KnownSeller, Listing
+from calhacks_contracts.db import Repo, get_db
+from calhacks_contracts.families import CONTRACTS_DIR
+from calhacks_contracts.splits import split_of
+
+_repo: Repo | None = None
+
+
+def repo() -> Repo:
+    global _repo
+    if _repo is None:
+        if os.environ.get("REDTEAM_MONGOMOCK") == "1":
+            _repo = seeded_mock_repo()
+        else:
+            _repo = Repo(get_db())
+            _repo.ensure_indexes()
+    return _repo
+
+
+def set_repo(r: Repo | None) -> None:
+    global _repo
+    _repo = r
+
+
+def seeded_mock_repo() -> Repo:
+    """mongomock Repo holding the contracts test fixtures as real listings and references (tests only)."""
+    import mongomock
+    from pymongo import ReplaceOne
+
+    def _bulk_write(self, requests, ordered=True, **_):
+        for r in requests:
+            assert isinstance(r, ReplaceOne)
+            self.replace_one(r._filter, r._doc, upsert=r._upsert)
+
+    mongomock.collection.Collection.bulk_write = _bulk_write
+    from calhacks_contracts.ingest import ingest_listings
+
+    r = Repo(mongomock.MongoClient()["redteam_mock"])
+    fx = CONTRACTS_DIR / "tests" / "fixtures"
+    refs = json.loads((fx / "references.json").read_text(encoding="utf-8"))
+    for k in refs["known_sellers"]:
+        r.put_known_seller(KnownSeller.model_validate(k))
+        r.touch_wallet(k["pay_to"], "2000-01-01")
+    for c in refs["crs_results"]:
+        r.put_crs(CrsResult.model_validate(c))
+    for m in refs["market_medians"]:
+        r.put_median(m["product_key"], m["condition"], m["median"], m["n"], "fixture", "2026-10-24")
+    rows = json.loads((fx / "real_listings.json").read_text(encoding="utf-8"))
+    ingest_listings(r, [json.dumps(x) for x in rows], "fixture")
+    return r
+
+
+def now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+# ---------- specs and rounds ----------
+def record_spec(r: Repo, spec: dict, round_: int, summary: dict) -> None:
+    r.db.specs.replace_one({"_id": spec["spec_id"]},
+                           {"_id": spec["spec_id"], "round": round_, "spec": spec, "summary": summary, "at": now()},
+                           upsert=True)
+
+
+def spec_ids_for(r: Repo, rounds: Iterable[int] | None) -> list[str] | None:
+    if rounds is None:
+        return None
+    return [d["_id"] for d in r.db.specs.find({"round": {"$in": list(rounds)}}, {"_id": 1})]
+
+
+def save_round(r: Repo, round_: int, **fields) -> None:
+    r.db.rounds.update_one({"_id": round_}, {"$set": {**fields, "updated_at": now()}}, upsert=True)
+
+
+def get_round(r: Repo, round_: int) -> dict | None:
+    return r.db.rounds.find_one({"_id": round_})
+
+
+def all_rounds(r: Repo) -> list[dict]:
+    return list(r.db.rounds.find().sort("_id", 1))
+
+
+# ---------- evaluation items ----------
+def listing_ids(r: Repo, *, rounds: Iterable[int] | None = None, include_real: bool = True,
+                split: str = "all") -> list[str]:
+    """Listing ids for the given rounds (synthetic via their specs) plus real listings, filtered by split."""
+    ids: set[str] = set()
+    specs = spec_ids_for(r, rounds)
+    q = {} if specs is None else {"spec_id": {"$in": specs}}
+    ids.update(d["_id"] for d in r.db.gen.find(q, {"_id": 1}))
+    if include_real:
+        ids.update(r.real_listing_ids())
+    return sorted(i for i in ids if split == "all" or split_of(i) == split)
+
+
+def items(r: Repo, ids: list[str]) -> list[tuple[Listing, Case, AnswerKey]]:
+    """(Listing, Case, AnswerKey) triples for scoring. Listings without a case or answer key are skipped."""
+    listings = {l.listing_id: l for l in r.listings(ids)}
+    cases = r.cases(ids)
+    keys = {k.listing_id: k for k in r.answer_keys({"_id": {"$in": ids}})}
+    return [(listings[i], cases[i], keys[i]) for i in ids if i in listings and i in cases and i in keys]
+
+
+def coverage(r: Repo) -> dict[str, int]:
+    return dict(sorted(Counter(d["family"] for d in r.db.answer_keys.find({}, {"family": 1})).items()))
