@@ -66,7 +66,8 @@ def _errors_as_json(fn, *a, **kw) -> dict:
     from gatepy.sandbox import FeaturePolicyError
     try:
         return fn(*a, **kw)
-    except (GateInputError, FeaturePolicyError, FileNotFoundError, KeyError, StubModelError) as e:
+    except (GateInputError, FeaturePolicyError, FileNotFoundError, KeyError, StubModelError,
+            json.JSONDecodeError) as e:
         return {"error": str(e)}
 
 
@@ -75,7 +76,7 @@ def train(round_: int) -> dict:
         return gate_stub.train(round_)
     try:
         _check_real(_promoted_id())
-    except StubModelError as e:
+    except (StubModelError, json.JSONDecodeError) as e:  # a corrupt promoted.json too
         return {"error": str(e)}
     if _in_process():
         from gatepy.train import train as gate_train
@@ -89,7 +90,7 @@ def evaluate(model_id: str, split: str = "all", ids: list[str] | None = None, ro
         return gate_stub.evaluate(model_id, split, ids, rows)
     try:
         _check_real(_promoted_id() if model_id == "promoted" else model_id)
-    except StubModelError as e:
+    except (StubModelError, json.JSONDecodeError) as e:  # a corrupt promoted.json too
         return {"error": str(e)}
     if _in_process():
         from gatepy.evaluate import evaluate_repo
