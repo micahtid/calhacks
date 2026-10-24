@@ -6,19 +6,21 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ItemCard from "@/components/ItemCard";
 import { Expand, Info } from "@/components/Icons";
-import { DELIVERY, FEEDBACK, ITEMS, SELLER, getItem, itemPath } from "@/lib/catalog";
+import { deliveryEstimate, getItem, itemPath, itemsOf } from "@/lib/catalog";
 
 // Every item page is built ahead of time from the catalog, so this route can wait on its params.
 export const instant = false;
 
-export function generateStaticParams() {
-  return ITEMS.map((item) => ({ itemNumber: item.itemNumber }));
+export async function generateStaticParams() {
+  return (await itemsOf()).map((item) => ({ itemNumber: item.itemNumber }));
 }
 
 export async function generateMetadata({ params }: PageProps<"/itm/[itemNumber]">): Promise<Metadata> {
-  const item = getItem((await params).itemNumber);
+  const item = await getItem((await params).itemNumber);
   return { title: item ? `${item.title} | eBay` : "eBay" };
 }
+
+const THUMBS = 7;
 
 const PAYMENTS = [
   { label: "PayPal", className: "pay-paypal" },
@@ -30,24 +32,16 @@ const PAYMENTS = [
 ];
 
 export default async function ItemPage({ params }: PageProps<"/itm/[itemNumber]">) {
-  const item = getItem((await params).itemNumber);
+  const item = await getItem((await params).itemNumber);
   if (!item) notFound();
 
-  const others = ITEMS.filter((other) => other.id !== item.id);
+  const { seller } = item;
+  const others = (await itemsOf()).filter((other) => other.id !== item.id);
   const alsoViewed = others.slice(0, 5);
-  const similar = others.slice(4, 9);
-  const specifics: [string, string][] = [
-    ["Condition", item.condition],
-    ["Seller Notes", `“${item.sellerNotes}”`],
-    ["Region Code", "NTSC-U/C (US/Canada)"],
-    ["Platform", item.console],
-    ["Release Year", String(item.releaseYear)],
-    ["Rating", "E-Everyone"],
-    ["MPN", item.mpn],
-    ["Publisher", item.publisher],
-    ["Genre", item.genre],
-    ["Game Name", item.name],
-  ];
+  // Similar items share the category first, then fall back to the best sellers.
+  const similar = [...others.filter((other) => item.category && other.category === item.category), ...others.filter((other) => other.category !== item.category)].slice(5, 10);
+  const specifics: [string, string][] = [["Condition", item.condition], ...item.specifics];
+  const delivery = await deliveryEstimate();
 
   return (
     <>
@@ -74,25 +68,31 @@ export default async function ItemPage({ params }: PageProps<"/itm/[itemNumber]"
         <nav className="crumbs">
           <span className="u-link">Back to Home Page</span>
           <span className="sep">|</span>
-          Listed in Category: <span className="u-link">Video Games &amp; Consoles</span> <Chevron dir="right" size={10} />{" "}
-          <span className="u-link">Video Games</span>
+          Listed in Category: <span className="u-link">Clothing, Shoes &amp; Accessories</span>
+          {item.category && (
+            <>
+              {" "}
+              <Chevron dir="right" size={10} /> <span className="u-link">{item.category}</span>
+            </>
+          )}
         </nav>
 
         <div className="vi">
           <div className="vi-left">
             <div className="vi-thumbs">
-              <span className="vi-thumb on">
-                <img src={item.image} alt="" />
-              </span>
+              {item.images.slice(0, THUMBS).map((image, index) => (
+                <span key={`${index}-${image}`} className={index === 0 ? "vi-thumb on" : "vi-thumb"}>
+                  <img src={image} alt="" />
+                </span>
+              ))}
             </div>
             <div className="vi-image">
-              {item.inCarts && <span className="vi-carts">IN {item.inCarts} CARTS</span>}
               <div className="vi-actions">
                 <span className="vi-round" aria-label="Expand">
                   <Expand />
                 </span>
-                <span className="vi-round wide">
-                  {item.watchers} <Heart size={20} />
+                <span className="vi-round" aria-label="Add to watchlist">
+                  <Heart size={20} />
                 </span>
               </div>
               <img src={item.image} alt={item.title} />
@@ -104,15 +104,19 @@ export default async function ItemPage({ params }: PageProps<"/itm/[itemNumber]"
 
             <div className="seller-card">
               <span className="seller-avatar" aria-hidden>
-                PC
+                {seller.initials}
               </span>
               <div className="seller-info">
                 <div>
-                  <b>{SELLER.name}</b> <span className="muted">({SELLER.feedbackScore})</span>
+                  <b>{seller.name}</b> {seller.feedbackScore !== null && <span className="muted">({seller.feedbackScore.toLocaleString("en-US")})</span>}
                 </div>
                 <div className="seller-links">
-                  <span className="u-link">{SELLER.positive} positive</span>
-                  <span className="dot">·</span>
+                  {seller.positive && (
+                    <>
+                      <span className="u-link">{seller.positive} positive</span>
+                      <span className="dot">·</span>
+                    </>
+                  )}
                   <span className="u-link">Seller&apos;s Other Items</span>
                   <span className="dot">·</span>
                   <span className="pill-btn">Message</span>
@@ -137,8 +141,6 @@ export default async function ItemPage({ params }: PageProps<"/itm/[itemNumber]"
                 <span>
                   <b>{item.condition}</b>
                   <Info />
-                  <br />
-                  <i>“{item.sellerNotes}”</i>
                 </span>
               </div>
               <div className="vi-row">
@@ -146,7 +148,8 @@ export default async function ItemPage({ params }: PageProps<"/itm/[itemNumber]"
                 <span className="qty-line">
                   <span className="qty-box">1</span>
                   <span className="muted">
-                    {item.available > 1 ? `${item.available} available` : "Last one"} · {item.sold} sold
+                    {item.available > 1 ? `${item.available} available` : "Last one"}
+                    {item.sold > 0 && ` · ${item.sold} sold`}
                   </span>
                 </span>
               </div>
@@ -176,14 +179,16 @@ export default async function ItemPage({ params }: PageProps<"/itm/[itemNumber]"
                   <b>Breathe easy.</b> Free shipping and returns.
                 </p>
               </div>
-              <div>
-                <span className="signal-icon" aria-hidden>
-                  ◷
-                </span>
-                <p>
-                  <b>People want this.</b> {item.watchers} people are watching this.
-                </p>
-              </div>
+              {item.sold > 0 && (
+                <div>
+                  <span className="signal-icon" aria-hidden>
+                    ◷
+                  </span>
+                  <p>
+                    <b>People want this.</b> {item.sold} have already sold.
+                  </p>
+                </div>
+              )}
             </div>
 
             <h3 className="vi-h3">Shipping, Returns, and Payments</h3>
@@ -193,12 +198,12 @@ export default async function ItemPage({ params }: PageProps<"/itm/[itemNumber]"
                 <span>
                   Free Standard Shipping. <span className="u-link">See Details</span>
                   <br />
-                  <span className="muted">Located in: {SELLER.location}</span>
+                  {seller.location && <span className="muted">Located in: {seller.location}</span>}
                 </span>
               </div>
               <div className="vi-row">
                 <span className="vi-label">Delivery:</span>
-                <span>{DELIVERY}</span>
+                <span>{delivery}</span>
               </div>
               <div className="vi-row">
                 <span className="vi-label">Returns:</span>
@@ -255,9 +260,6 @@ export default async function ItemPage({ params }: PageProps<"/itm/[itemNumber]"
                 eBay Item Number: <b>{item.itemNumber}</b>
               </span>
             </div>
-            <p className="muted small">
-              Last updated on {item.updated} <u>View All Revisions</u>
-            </p>
             <h2>Item Specifics</h2>
             <dl className="specifics">
               {specifics.map(([label, value]) => (
@@ -277,15 +279,14 @@ export default async function ItemPage({ params }: PageProps<"/itm/[itemNumber]"
             <h2>About This Seller</h2>
             <div className="seller-head">
               <span className="seller-avatar big" aria-hidden>
-                PC
+                {seller.initials}
               </span>
               <div>
-                <b className="seller-name">{SELLER.name}</b>
-                <p>{SELLER.positive} positive feedback</p>
-                <p>{SELLER.itemsSold} items sold</p>
+                <b className="seller-name">{seller.name}</b>
+                {seller.positive && <p>{seller.positive} positive feedback</p>}
+                {seller.location && <p>{seller.location}</p>}
               </div>
             </div>
-            <p className="seller-fact">Joined {SELLER.joined}</p>
             <p className="seller-fact">Usually responds within 24 hours</p>
             <div className="seller-btns">
               <span className="cta-primary small">Seller&apos;s Other Items</span>
@@ -294,44 +295,26 @@ export default async function ItemPage({ params }: PageProps<"/itm/[itemNumber]"
                 <Heart size={16} /> Save Seller
               </span>
             </div>
-            <h3>Detailed Seller Ratings</h3>
-            <table className="dsr">
-              <tbody>
-                {SELLER.ratings.map((rating) => (
-                  <tr key={rating.label}>
-                    <td>{rating.label}</td>
-                    <td>
-                      <div className="dsr-bar">
-                        <div style={{ width: `${(rating.value / 5) * 100}%` }} />
-                      </div>
-                    </td>
-                    <td>{rating.value.toFixed(1)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="muted small">Average for the last 12 months</p>
           </div>
           <div className="seller-feedback">
             <h2>
-              Seller Feedback <span className="muted">({SELLER.feedbackScore.toLocaleString("en-US")})</span>
+              Seller Feedback {seller.feedbackScore !== null && <span className="muted">({seller.feedbackScore.toLocaleString("en-US")})</span>}
             </h2>
-            {FEEDBACK.map((entry) => (
-              <div key={`${entry.author}-${entry.authorScore}`} className="fb">
+            {item.feedback.length === 0 && <p className="muted">No feedback on this item yet.</p>}
+            {item.feedback.map((entry, index) => (
+              <div key={`${entry.author}-${index}`} className="fb">
                 <div className="fb-head">
                   <span className="fb-plus" aria-hidden>
                     +
                   </span>
-                  <span className="muted">
-                    {entry.author} ({entry.authorScore})
-                  </span>
+                  <span className="muted">{entry.author}</span>
                   <span className="dot">·</span>
                   <span className="muted">{entry.date}</span>
                   <span className="dot">·</span>
                   <span className="muted">Verified Purchase</span>
                 </div>
                 <p>{entry.body}</p>
-                <u className="muted small">{entry.itemTitle}</u>
+                <u className="muted small">{item.title}</u>
               </div>
             ))}
           </div>

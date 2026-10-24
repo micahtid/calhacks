@@ -1,6 +1,6 @@
 export * from "./format";
-export * from "./games";
+export * from "./highlights";
 export * from "./Icons";
-export * from "./lookup";
 export { default as FooterColumns, type FooterColumn } from "./FooterColumns";
+export { default as Loading } from "./Loading";
 export * from "./reviews";

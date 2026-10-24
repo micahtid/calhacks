@@ -3,10 +3,9 @@ import Logo from "./Logo";
 import { Cart, Menu, Pin, Search } from "./Icons";
 import type { Store } from "../types";
 
-const NAV = ["Today's Deals", "Prime Video", "Registry", "Gift Cards", "Customer Service", "Sell", "Best Sellers", "New Releases", "Books", "Video Games"];
-const SUBNAV = ["PS5", "Xbox Series X|S", "Switch", "PS4", "PC", "Legacy Systems", "Accessories", "Deals", "Best Sellers", "New Releases", "Trade-In"];
-
-export default function Header({ store, subnav = false }: { store: Store; subnav?: boolean }) {
+const NAV = ["Today's Deals", "Prime Video", "Registry", "Gift Cards", "Customer Service", "Sell", "Best Sellers", "New Releases", "Books", "Fashion"];
+// The department bar lists the catalog's own biggest categories, so it follows whatever is listed.
+export default function Header({ store, categories }: { store: Store; categories?: string[] }) {
   return (
     <header>
       {store.banner}
@@ -57,10 +56,10 @@ export default function Header({ store, subnav = false }: { store: Store; subnav
           <span key={label}>{label}</span>
         ))}
       </nav>
-      {subnav && (
+      {categories && (
         <div className="subnav">
-          <b>Video Games</b>
-          {SUBNAV.map((label) => (
+          <b>Amazon Fashion</b>
+          {categories.map((label) => (
             <span key={label}>{label}</span>
           ))}
         </div>

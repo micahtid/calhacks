@@ -1,16 +1,21 @@
 import { notFound } from "next/navigation";
-import { Heart, formatUsd, percentOff } from "@calhacks/common";
+import { Heart, formatUsd, percentOff, topGroups } from "@calhacks/common";
+import { daysFromToday } from "@calhacks/common/dates";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 import Price from "./components/Price";
 import ProductCard from "./components/ProductCard";
 import Stars from "./components/Stars";
 import { Avatar, Flag, Pin, Share } from "./components/Icons";
-import { getItem } from "./catalog";
+import { itemsOf } from "./items";
 import type { Item, Store } from "./types";
 
 // Amazon warns shoppers once fewer than this many are left.
 const LOW_STOCK = 5;
+
+const THUMBS = 6;
+
+const SUBNAV = 10;
 
 function StockLine({ item }: { item: Item }) {
   if (item.stock === 0) return <p className="stock stock-out">Currently unavailable.</p>;
@@ -18,13 +23,18 @@ function StockLine({ item }: { item: Item }) {
   return <p className="stock stock-in">In Stock</p>;
 }
 
-export default function ItemPage({ store, id }: { store: Store; id: string }) {
-  const item = getItem(store, id);
+export default async function ItemPage({ store, id }: { store: Store; id: string }) {
+  const items = await itemsOf(store);
+  const item = items.find((entry) => entry.id === id);
   if (!item) notFound();
 
   const { listing } = store;
-  const similar = store.items.filter((other) => other.id !== item.id).slice(0, 5);
-  const crumbs = ["Video Games", "Legacy Systems", `${item.publisher === "SEGA" ? "Sega" : "Nintendo"} Systems`, `${item.platform} Systems`, "Games"];
+  // Similar items come from the same category first, then from the rest of the best sellers.
+  const others = items.filter((other) => other.id !== item.id);
+  const similar = [...others.filter((other) => other.category === item.category), ...others.filter((other) => other.category !== item.category)].slice(0, 5);
+  const crumbs = ["Clothing, Shoes & Jewelry", item.category];
+  const categories = topGroups(items, (entry) => entry.category, SUBNAV).map((group) => group.label);
+  const [delivery, fast] = await Promise.all([daysFromToday(store.deliveryDays), daysFromToday(store.fastDays)]);
   const bullets = listing.leadBullet ? [listing.leadBullet, ...item.bullets] : item.bullets;
   const details = [
     ["Ships From", listing.shipsFrom],
@@ -36,7 +46,7 @@ export default function ItemPage({ store, id }: { store: Store; id: string }) {
 
   return (
     <>
-      <Header store={store} subnav />
+      <Header store={store} categories={categories} />
       <main className="dp">
         <div className="breadcrumb">
           {crumbs.map((crumb, index) => (
@@ -50,9 +60,11 @@ export default function ItemPage({ store, id }: { store: Store; id: string }) {
         <div className="dp-top">
           <div className="dp-left">
             <div className="dp-thumbs">
-              <span className="dp-thumb active">
-                <img src={item.image} alt="" />
-              </span>
+              {item.images.slice(0, THUMBS).map((image, index) => (
+                <span key={`${index}-${image}`} className={index === 0 ? "dp-thumb active" : "dp-thumb"}>
+                  <img src={image} alt="" />
+                </span>
+              ))}
             </div>
             <div className="dp-image">
               <div className="dp-image-actions">
@@ -70,9 +82,9 @@ export default function ItemPage({ store, id }: { store: Store; id: string }) {
 
           <div className="dp-center">
             <h1 className="dp-title">{item.title}</h1>
-            <span className="link">Visit the {item.publisher} Store</span>
+            <span className="link">Visit the {item.brand} Store</span>
             <div className="dp-meta">
-              <b>Platform :</b> {item.platform} <span className="divider">|</span> <span className="muted">Rated:</span> <span className="link">Everyone</span>
+              <b>Brand :</b> {item.brand} <span className="divider">|</span> <span className="muted">Category:</span> <span className="link">{item.category}</span>
             </div>
             <div className="rating-line">
               <span>{item.rating.toFixed(1)}</span>
@@ -114,10 +126,10 @@ export default function ItemPage({ store, id }: { store: Store; id: string }) {
               FREE Returns <span className="caret dark" />
             </div>
             <p>
-              FREE Delivery <b>{store.deliveryDate}</b>
+              FREE Delivery <b>{delivery.join(" - ")}</b>
             </p>
             <p>
-              Or fastest delivery <b>{store.fastDelivery}</b>
+              Or fastest delivery <b>{fast.join(" - ")}</b>
               {listing.deliveryNote}
             </p>
             <p className="link small deliver-to">
@@ -207,9 +219,9 @@ export default function ItemPage({ store, id }: { store: Store; id: string }) {
                   <Stars rating={review.rating} />
                   <b>{review.title}</b>
                 </div>
-                <p className="muted small review-meta">Reviewed in the United States on {review.date}</p>
+                {review.date && <p className="muted small review-meta">Reviewed in the United States on {review.date}</p>}
                 <p className="small">
-                  Platform: {item.platform} <span className="divider">|</span> <span className="verified">Verified Purchase</span>
+                  <span className="verified">Verified Purchase</span>
                 </p>
                 <p className="review-body">{review.body}</p>
                 <p className="muted small">{review.helpful} people found this helpful</p>

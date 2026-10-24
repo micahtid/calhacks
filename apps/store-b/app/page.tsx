@@ -1,40 +1,40 @@
 import Link from "next/link";
-import { Chevron } from "@calhacks/common";
+import { Chevron, picker, topGroups } from "@calhacks/common";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ItemCard from "@/components/ItemCard";
-import { ITEMS, byId, itemPath } from "@/lib/catalog";
+import { itemPath, itemsOf, type Item } from "@/lib/catalog";
 
-const HERO = [
-  { label: "Game Boy Games", item: byId("pokemon-red-gb") },
-  { label: "Super Nintendo", item: byId("super-mario-world-snes") },
-  { label: "Nintendo 64", item: byId("mario-kart-64-n64") },
-];
+const HERO = 3;
+const SHORTCUTS = 6;
+const RECOMMENDED = 20;
 
-const SHORTCUTS = [
-  { label: "Game Boy", item: byId("zelda-links-awakening-gb") },
-  { label: "Super Nintendo", item: byId("donkey-kong-country-snes") },
-  { label: "Nintendo 64", item: byId("goldeneye-007-n64") },
-  { label: "Sega Genesis", item: byId("sonic-2-genesis") },
-  { label: "Puzzle Games", item: byId("tetris-gb") },
-  { label: "Platformers", item: byId("kirbys-dream-land-gb") },
-  { label: "Shop All", item: byId("star-fox-snes") },
-];
+// Each group is shown by its best seller that no other highlight already uses.
+function leadsOf(groups: { label: string; items: Item[] }[], pick: (ranked: Item[], count: number) => Item[]) {
+  return groups.flatMap((group) => pick(group.items, 1).map((item) => ({ label: group.label, item })));
+}
 
-export default function Home() {
-  const deals = ITEMS.filter((item) => item.wasPrice);
+// Every highlight comes from what is listed right now. The items arrive best seller first,
+// so the hero shows the biggest categories and the shortcuts show the biggest brands.
+export default async function Home() {
+  const items = await itemsOf();
+  const pick = picker<Item>((item) => item.id);
+  const hero = leadsOf(topGroups(items, (item) => item.category, HERO), pick);
+  const shortcuts = [...leadsOf(topGroups(items, (item) => item.brand, SHORTCUTS), pick), ...pick(items, 1).map((item) => ({ label: "Shop All", item }))];
+  const deals = items.filter((item) => item.wasPrice);
+
   return (
     <>
       <Header />
       <main className="page">
         <section className="hero">
           <div className="hero-copy">
-            <h1>Build Your Retro Collection</h1>
-            <p>Score classic cartridges, tested games, and rare finds.</p>
+            <h1>Find Your Next Favorite Layer</h1>
+            <p>Score great prices on {hero.map(({ label }) => label.toLowerCase()).join(", ")}, and more.</p>
             <span className="hero-btn">Shop Now</span>
           </div>
           <div className="hero-items">
-            {HERO.map(({ label, item }) => (
+            {hero.map(({ label, item }) => (
               <Link key={label} href={itemPath(item)} className="hero-item">
                 <img src={item.image} alt={item.title} />
                 <span>
@@ -52,9 +52,9 @@ export default function Home() {
         </section>
 
         <section className="row">
-          <h2>Level Up Your Game Shelf</h2>
+          <h2>Shop Top Brands</h2>
           <div className="shortcuts">
-            {SHORTCUTS.map(({ label, item }) => (
+            {shortcuts.map(({ label, item }) => (
               <Link key={label} href={itemPath(item)} className="shortcut">
                 <div className="shortcut-img">
                   <img src={item.image} alt="" />
@@ -68,13 +68,13 @@ export default function Home() {
         <section className="row">
           <div className="row-head">
             <div>
-              <h2>Video Games</h2>
+              <h2>Clothing, Shoes and Accessories</h2>
               <p>Recommended for You</p>
             </div>
             <span className="u-link">See All</span>
           </div>
           <div className="cards">
-            {ITEMS.map((item) => (
+            {items.slice(0, RECOMMENDED).map((item) => (
               <ItemCard key={item.id} item={item} />
             ))}
           </div>
@@ -82,26 +82,28 @@ export default function Home() {
 
         <section className="banner">
           <div>
-            <h2>Every Cartridge Tested Before It Ships</h2>
-            <p>Buy retro games with the eBay Money Back Guarantee.</p>
+            <h2>Shop With Confidence</h2>
+            <p>Get the item you ordered or your money back with the eBay Money Back Guarantee.</p>
           </div>
           <span className="banner-btn">Learn More</span>
         </section>
 
-        <section className="row">
-          <div className="row-head">
-            <div>
-              <h2>Today&apos;s Deals</h2>
-              <p>All with Free Shipping</p>
+        {deals.length > 0 && (
+          <section className="row">
+            <div className="row-head">
+              <div>
+                <h2>Today&apos;s Deals</h2>
+                <p>All with Free Shipping</p>
+              </div>
+              <span className="u-link">See All</span>
             </div>
-            <span className="u-link">See All</span>
-          </div>
-          <div className="cards">
-            {deals.map((item) => (
-              <ItemCard key={item.id} item={item} showWas />
-            ))}
-          </div>
-        </section>
+            <div className="cards">
+              {deals.map((item) => (
+                <ItemCard key={item.id} item={item} showWas />
+              ))}
+            </div>
+          </section>
+        )}
       </main>
       <Footer />
     </>

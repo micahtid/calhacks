@@ -1,208 +1,154 @@
-import { findOrThrow, listingFor, type BaseReview, type Game } from "@calhacks/common";
+import { titleCase, type BaseReview } from "@calhacks/common";
+import { daysFromToday } from "@calhacks/common/dates";
+import { marketListings, type MarketListing } from "@calhacks/common/market";
 
 export type Feedback = BaseReview & {
-  authorScore: number;
-  itemTitle: string;
+  rating: number;
 };
 
-export type Item = Game & {
+export type Seller = {
+  name: string;
+  initials: string;
+  feedbackScore: number | null;
+  positive: string | null;
+  location: string | null;
+};
+
+export type Item = {
+  id: string;
   itemNumber: string;
   title: string;
   price: number;
   wasPrice?: number;
-  condition: "Very Good" | "Good" | "Acceptable" | "Like New";
-  sellerNotes: string;
+  condition: string;
+  brand: string | null;
+  category: string | null;
+  image: string;
+  images: string[];
   available: number;
   sold: number;
-  watchers: number;
-  inCarts?: number;
-  mpn: string;
   description: string;
-  updated: string;
+  specifics: [string, string][];
+  seller: Seller;
+  feedback: Feedback[];
 };
 
-export const SELLER = {
-  name: "pixelcart_retro",
-  feedbackScore: 1006,
-  positive: "99.4%",
-  itemsSold: "3.2K",
-  joined: "Jun 2019",
-  location: "Columbus, Ohio, United States",
-  ratings: [
-    { label: "Accurate Description", value: 4.9 },
-    { label: "Reasonable Shipping Cost", value: 5.0 },
-    { label: "Shipping Speed", value: 5.0 },
-    { label: "Communication", value: 4.9 },
-  ],
-};
+// Standard shipping arrives six to ten days from today.
+const DELIVERY_DAYS = [6, 10];
 
-export const DELIVERY = "Estimated between Thu, Oct 29 and Mon, Nov 2 to 68508";
-
-export const FEEDBACK: Feedback[] = [
-  { author: "m***b", authorScore: 112, date: "Past month", body: "Save battery really was replaced. Saved a game, left it overnight, file was still there. Exactly as described.", itemTitle: "Pokemon Red Version (Nintendo Game Boy, 1998) Authentic Tested Cartridge" },
-  { author: "d***z", authorScore: 48, date: "Past month", body: "Plays perfectly on my original Game Boy. Contacts were clean. Fast shipping, well packed.", itemTitle: "The Legend of Zelda: Link's Awakening (Game Boy, 1993) Tested Authentic" },
-  { author: "a***n", authorScore: 1210, date: "Past 6 months", body: "Label colors are bright and the shell has no yellowing. Great seller, would buy again.", itemTitle: "Super Mario World (Super Nintendo SNES, 1991) Cartridge Only Tested" },
-  { author: "k***u", authorScore: 5255, date: "Past 6 months", body: "Item as described. Found it a little cheaper elsewhere later, but the cartridge matched the listing exactly.", itemTitle: "Super Mario World (Super Nintendo SNES, 1991) Cartridge Only Tested" },
-  { author: "j***p", authorScore: 2279, date: "Past 6 months", body: "Cleaned and tested as promised. Four player battle mode for hours with no freezes. Recommended seller.", itemTitle: "Mario Kart 64 (Nintendo 64, 1997) N64 Authentic Cartridge Tested" },
-];
-
-const listing = listingFor<Item>();
-
-export const ITEMS: Item[] = [
-  listing({
-    id: "pokemon-red-gb",
-    itemNumber: "206644004313",
-    title: "Pokemon Red Version (Nintendo Game Boy, 1998) Authentic Tested Cartridge",
-    price: 8.75,
-    wasPrice: 9.99,
-    condition: "Very Good",
-    sellerNotes: "New save battery installed. Light label wear on one edge.",
-    available: 4,
-    sold: 31,
-    watchers: 10,
-    inCarts: 5,
-    mpn: "DMG-APAE-USA",
-    description: "Original Pokemon Red cartridge for the Nintendo Game Boy. The save battery was replaced, so new save files hold after the console is turned off. The label has light wear on one edge and the contacts are clean. Cartridge only, no box or manual. Tested on an original Game Boy and a Game Boy Color.",
-    updated: "Oct 23, 2026 01:31:39 PDT",
-  }),
-  listing({
-    id: "zelda-links-awakening-gb",
-    itemNumber: "206644004427",
-    title: "The Legend of Zelda: Link's Awakening (Game Boy, 1993) Tested Authentic",
-    price: 7.49,
-    condition: "Good",
-    sellerNotes: "Cartridge only. Tested and works.",
-    available: 7,
-    sold: 22,
-    watchers: 6,
-    mpn: "DMG-ZLE-USA",
-    description: "Original black cartridge release of Link's Awakening. Tested and works, saves hold. Cartridge only. The contacts were cleaned before listing.",
-    updated: "Oct 21, 2026 18:04:12 PDT",
-  }),
-  listing({
-    id: "tetris-gb",
-    itemNumber: "206644004538",
-    title: "Tetris (Nintendo Game Boy, 1989) Cartridge Only Tested Works",
-    price: 2.49,
-    condition: "Acceptable",
-    sellerNotes: "Label is scuffed but it plays perfectly.",
-    available: 12,
-    sold: 64,
-    watchers: 3,
-    mpn: "DMG-TRA-USA",
-    description: "Original 1989 Tetris cartridge. The label is scuffed, see photos, but the game plays perfectly. Cleaned and tested. Cartridge only.",
-    updated: "Oct 19, 2026 09:22:51 PDT",
-  }),
-  listing({
-    id: "super-mario-world-snes",
-    itemNumber: "206644004649",
-    title: "Super Mario World (Super Nintendo SNES, 1991) Cartridge Only Tested",
-    price: 6.99,
-    wasPrice: 7.99,
-    condition: "Like New",
-    sellerNotes: "Bright label, no shell yellowing.",
-    available: 5,
-    sold: 48,
-    watchers: 14,
-    inCarts: 3,
-    mpn: "SNS-MW-USA",
-    description: "Super Mario World for the Super Nintendo. Contacts are clean and the label is bright with no shell yellowing. Battery save tested and working. Cartridge only.",
-    updated: "Oct 22, 2026 14:10:05 PDT",
-  }),
-  listing({
-    id: "donkey-kong-country-snes",
-    itemNumber: "206644004750",
-    title: "Donkey Kong Country (SNES, 1994) Authentic Cartridge Saves Work",
-    price: 5.49,
-    condition: "Good",
-    sellerNotes: "Saves work. Small sticker residue on the back.",
-    available: 3,
-    sold: 19,
-    watchers: 8,
-    mpn: "SNS-8X-USA",
-    description: "Donkey Kong Country cartridge. Saves still work. There is a little sticker residue on the back of the cartridge. Cleaned and tested.",
-    updated: "Oct 20, 2026 11:45:30 PDT",
-  }),
-  listing({
-    id: "mario-kart-64-n64",
-    itemNumber: "206644004861",
-    title: "Mario Kart 64 (Nintendo 64, 1997) N64 Authentic Cartridge Tested",
-    price: 9.25,
-    wasPrice: 10.49,
-    condition: "Good",
-    sellerNotes: "Cleaned and tested. Small scuff on the shell corner.",
-    available: 6,
-    sold: 57,
-    watchers: 21,
-    inCarts: 7,
-    mpn: "NUS-NKTE-USA",
-    description: "Mario Kart 64 cartridge, cleaned and tested. Four player mode tested with no freezes. Small scuff on one corner of the shell, shown in photos. Cartridge only.",
-    updated: "Oct 23, 2026 07:58:44 PDT",
-  }),
-  listing({
-    id: "goldeneye-007-n64",
-    itemNumber: "206644004972",
-    title: "GoldenEye 007 (Nintendo 64, 1997) N64 Cartridge Faded Label Works",
-    price: 4.99,
-    condition: "Acceptable",
-    sellerNotes: "Faded label, works perfectly.",
-    available: 2,
-    sold: 26,
-    watchers: 9,
-    mpn: "NUS-NGEE-USA",
-    description: "GoldenEye 007 cartridge. The label is faded but the game works perfectly, multiplayer included. Cartridge only.",
-    updated: "Oct 18, 2026 16:33:09 PDT",
-  }),
-  listing({
-    id: "sonic-2-genesis",
-    itemNumber: "206644005083",
-    title: "Sonic the Hedgehog 2 (Sega Genesis, 1992) Complete in Box with Manual CIB",
-    price: 3.49,
-    condition: "Very Good",
-    sellerNotes: "Complete in box with manual. Case hinges intact.",
-    available: 8,
-    sold: 40,
-    watchers: 5,
-    mpn: "1051",
-    description: "Sonic the Hedgehog 2 for the Sega Genesis, complete in the original case with the manual. Case hinges are intact. Cleaned and tested.",
-    updated: "Oct 17, 2026 20:12:47 PDT",
-  }),
-  listing({
-    id: "kirbys-dream-land-gb",
-    itemNumber: "206644005194",
-    title: "Kirby's Dream Land (Nintendo Game Boy, 1992) Tested Authentic Cart",
-    price: 2.99,
-    condition: "Good",
-    sellerNotes: "Tested and works. Minor shelf wear.",
-    available: 9,
-    sold: 17,
-    watchers: 4,
-    mpn: "DMG-KYE-USA",
-    description: "Kirby's Dream Land cartridge, tested and works. Clean label with minor shelf wear. A great first game for a new Game Boy owner. Cartridge only.",
-    updated: "Oct 22, 2026 10:05:18 PDT",
-  }),
-  listing({
-    id: "star-fox-snes",
-    itemNumber: "206644005205",
-    title: "Star Fox (Super Nintendo SNES, 1993) Super FX Cartridge Torn Label",
-    price: 1.99,
-    condition: "Acceptable",
-    sellerNotes: "Label is a little torn. Plays fine.",
-    available: 1,
-    sold: 12,
-    watchers: 2,
-    mpn: "SNS-FO-USA",
-    description: "Star Fox cartridge with the Super FX chip. The label is a little torn, shown in photos. Cleaned and tested, plays fine. Cartridge only.",
-    updated: "Oct 16, 2026 13:27:02 PDT",
-  }),
-];
-
-export function byId(id: string): Item {
-  return findOrThrow(ITEMS, (item) => item.id === id, `item: ${id}`);
+export async function deliveryEstimate(): Promise<string> {
+  const [from, to] = await daysFromToday(DELIVERY_DAYS);
+  return `Estimated between ${from} and ${to} to 68508`;
 }
 
-export function getItem(itemNumber: string): Item | undefined {
-  return ITEMS.find((item) => item.itemNumber === itemNumber);
+const CONDITIONS: Record<string, string> = { new: "New with tags", like_new: "Pre-owned - Excellent", good: "Pre-owned - Good", acceptable: "Pre-owned - Fair" };
+
+// These scraped attributes are page chrome, like shipping and payment lines, not facts about the item.
+const SKIPPED_SPECIFICS = new Set(["", "Item price", "Estimated total", "Discounts", "Shipping", "Condition"]);
+
+const SPECIFICS = 12;
+
+// A long value is usually a pasted paragraph, so it is left out of the specifics table.
+const MAX_SPECIFIC = 60;
+
+// eBay appends the definition to the condition, like "Pre-owned - GoodThis item has been gently used", so only the label is kept.
+function conditionOf({ item }: MarketListing): string {
+  const label = item.attributes.Condition?.split(/(?=This item)/)[0].trim();
+  return label || CONDITIONS[item.condition ?? ""] || "Pre-owned";
+}
+
+function specificsOf({ item }: MarketListing): [string, string][] {
+  return Object.entries(item.attributes)
+    .filter(([key, value]) => !SKIPPED_SPECIFICS.has(key) && !key.endsWith(":") && value && value.length <= MAX_SPECIFIC)
+    .slice(0, SPECIFICS);
+}
+
+const BULLET = /^[●•▪◦·]$/;
+const SENTENCE_END = /[.!?:;"”]$/;
+const DROP_CAP = /^[A-Z]$/;
+const LONE_NUMBER = /^\d+$/;
+const SYMBOLS = /^[^\w\s●•▪◦·]+$/;
+
+// A sentence never ends on one of these words or on an open bracket, so a line that does carries on into the next.
+const CONNECTOR = /(\b(a|an|the|of|to|and|or|for|with|in|on|at|by|from|as)|[(\[])$/i;
+
+function isUpper(line: string): boolean {
+  return /[A-Z]/.test(line) && line === line.toUpperCase();
+}
+
+// A break splits a sentence when the next line carries on in lowercase, when the line ends on a word like "of", when the line is a lone number
+// or drop-cap letter like "2" or "O", when the next line is only a symbol like "°", or when both lines are pieces of one all-caps heading
+// like "THANK" and "YOU FOR SHOPPING". A drop cap is never part of a heading, so it waits for the word it starts.
+function continues(line: string, next: string): boolean {
+  if (/^[a-z]/.test(next) && !SENTENCE_END.test(line)) return true;
+  if (CONNECTOR.test(line) || DROP_CAP.test(line) || LONE_NUMBER.test(line) || SYMBOLS.test(next)) return true;
+  return isUpper(line) && isUpper(next) && !DROP_CAP.test(next) && !SENTENCE_END.test(line);
+}
+
+// A drop cap belongs to its word, "O" + "ur" is "Our", a symbol belongs to the number before it, "360" + "°", and an open bracket
+// belongs to what it opens. Everything else joins with a space.
+function glue(line: string, next: string): string {
+  const touching = (DROP_CAP.test(line) && /^[a-z]/.test(next)) || SYMBOLS.test(next) || /[(\[]$/.test(line);
+  return touching ? `${line}${next}` : `${line} ${next}`;
+}
+
+// eBay flattens the seller's HTML into lines that break mid-sentence, so the broken sentences are joined back together.
+// A lone bullet joins the line after it, and the seller's ** markdown is dropped, since it would show as asterisks.
+function readable(description: string): string {
+  const lines = description
+    .replace(/^eBay\s*/, "")
+    .replace(/\*\*/g, "")
+    .split("\n")
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  const joined: string[] = [];
+  for (const line of lines) {
+    const last = joined.at(-1);
+    if (last !== undefined && (BULLET.test(last) || continues(last, line))) joined[joined.length - 1] = glue(last, line);
+    else joined.push(line);
+  }
+  return joined.join("\n");
+}
+
+function sellerOf({ store }: MarketListing): Seller {
+  return {
+    name: store.name,
+    initials: store.name.slice(0, 2).toUpperCase(),
+    feedbackScore: store.reviewCount,
+    positive: store.positivePercent === null ? null : `${store.positivePercent}%`,
+    location: store.location,
+  };
+}
+
+function toItem(listing: MarketListing): Item {
+  const { item, source } = listing;
+  return {
+    id: listing.id,
+    itemNumber: source.externalId,
+    title: item.title,
+    price: item.price,
+    wasPrice: item.listPrice && item.listPrice > item.price ? item.listPrice : undefined,
+    condition: conditionOf(listing),
+    brand: item.brand,
+    category: item.category ? titleCase(item.category) : null,
+    image: item.images[0],
+    images: item.images,
+    available: item.stock ?? 1,
+    sold: item.stats?.sold ?? 0,
+    description: readable(item.description ?? ""),
+    specifics: specificsOf(listing),
+    seller: sellerOf(listing),
+    feedback: listing.reviews,
+  };
+}
+
+// The listings that have sold the most come first.
+export async function itemsOf(): Promise<Item[]> {
+  return (await marketListings("ebay")).map(toItem).sort((a, b) => b.sold - a.sold);
+}
+
+export async function getItem(itemNumber: string): Promise<Item | undefined> {
+  return (await itemsOf()).find((item) => item.itemNumber === itemNumber);
 }
 
 export function itemPath(item: Item): string {

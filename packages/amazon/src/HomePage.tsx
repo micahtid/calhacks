@@ -1,50 +1,75 @@
 import Link from "next/link";
-import { Chevron, percentOff } from "@calhacks/common";
+import { Chevron, formatUsd, percentOff, picker, topGroups } from "@calhacks/common";
 import Header from "./components/Header";
 import Footer from "./components/Footer";
 import ProductCard from "./components/ProductCard";
-import { byIds, itemPath } from "./catalog";
-import type { Store } from "./types";
+import { itemPath } from "./catalog";
+import { itemsOf } from "./items";
+import type { Item, Store } from "./types";
 
-const DEALS = [
-  { title: "Deals for You", ids: ["pokemon-red-gb", "super-mario-world-snes", "mario-kart-64-n64", "tetris-gb"] },
-  { title: "Inspired by Your Recent History", ids: ["zelda-links-awakening-gb", "kirbys-dream-land-gb", "donkey-kong-country-snes", "star-fox-snes"] },
-  { title: "Ending Soon", ids: ["goldeneye-007-n64", "sonic-2-genesis", "tetris-gb", "mario-kart-64-n64"] },
-];
+const TONES = ["red", "violet", "green", "dark"] as const;
 
-const HERO_ART = ["mario-kart-64-n64", "pokemon-red-gb", "super-mario-world-snes"];
+// Each tile and deal card shows a grid of four.
+const QUAD = 4;
 
-// Items without a list price still get a small badge, like the real deal cards.
-const DEFAULT_DEAL = 10;
+const BEST_SELLERS = 20;
 
-export default function HomePage({ store }: { store: Store }) {
+// A rating only counts as top rated once enough people have left one.
+const MIN_RATINGS = 50;
+
+// Every highlight comes from what is in the catalog right now. The items arrive ranked best seller first,
+// and each item shows in at most one highlight, so the hero, tiles, and deal cards never repeat.
+function highlightsOf(items: Item[]) {
+  const pick = picker<Item>((item) => item.id);
+  const hero = pick(items, 3);
+  const tiles = topGroups(items, (item) => item.category, TONES.length * 2, QUAD)
+    .map((group) => ({ label: group.label, items: pick(group.items, QUAD) }))
+    .filter((tile) => tile.items.length === QUAD)
+    .slice(0, TONES.length);
+  // Deal cards only show items that are really marked down, so every badge is a real discount.
+  const discounted = items.filter((item) => item.listPrice);
+  const biggestCuts = [...discounted].sort((a, b) => percentOff(b.price, b.listPrice) - percentOff(a.price, a.listPrice));
+  const topRated = discounted.filter((item) => item.ratingCount >= MIN_RATINGS).sort((a, b) => b.rating - a.rating || b.ratingCount - a.ratingCount);
+  const deals = [
+    { title: "Deals for You", items: pick(biggestCuts, QUAD) },
+    { title: "Inspired by Your Recent History", items: pick(topRated, QUAD) },
+    { title: "Ending Soon", items: pick(discounted, QUAD) },
+  ].filter((deal) => deal.items.length > 0);
+  return { hero, tiles, deals };
+}
+
+export default async function HomePage({ store }: { store: Store }) {
   const { home } = store;
+  const items = await itemsOf(store);
+  const { hero, tiles, deals } = highlightsOf(items);
+  const lowest = Math.min(...items.map((item) => item.price));
+
   return (
     <>
       <Header store={store} />
       <main className="home">
-        <Link href={itemPath(store.items[0])} className="hero">
+        <Link href={itemPath(items[0])} className="hero">
           <div className="hero-copy">
             <p className="hero-kicker">{home.kicker}</p>
-            <h1>{home.headline}</h1>
+            <h1>{home.headline(formatUsd(lowest))}</h1>
             <span className="pill-yellow">{home.cta}</span>
             <small>Terms apply.</small>
           </div>
           <div className="hero-art">
-            {byIds(store, HERO_ART).map((item) => (
+            {hero.map((item) => (
               <img key={item.id} src={item.image} alt="" />
             ))}
           </div>
         </Link>
 
         <section className="tiles">
-          {home.tiles.map((tile) => (
-            <div key={tile.title} className={`tile tile-${tile.tone}`}>
-              <h2>{tile.title}</h2>
+          {tiles.map((tile, index) => (
+            <div key={tile.label} className={`tile tile-${TONES[index]}`}>
+              <h2>{home.tile(tile.label)}</h2>
               <div className="tile-quad">
-                {byIds(store, tile.ids).map((item) => (
+                {tile.items.map((item) => (
                   <Link key={item.id} href={itemPath(item)} className="tile-box">
-                    <img src={item.image} alt={item.name} />
+                    <img src={item.image} alt={item.title} />
                   </Link>
                 ))}
               </div>
@@ -55,19 +80,19 @@ export default function HomePage({ store }: { store: Store }) {
         <section className="block">
           <h2 className="block-title">Recommended Deals for You</h2>
           <div className="deal-row">
-            {DEALS.map((deal) => (
+            {deals.map((deal) => (
               <div key={deal.title} className="deal-card">
                 <div className="deal-head">
                   <span>{deal.title}</span>
                   <Chevron dir="right" size={20} />
                 </div>
                 <div className="deal-quad">
-                  {byIds(store, deal.ids).map((item, index) => (
+                  {deal.items.map((item, index) => (
                     <Link key={item.id} href={itemPath(item)} className="deal-cell">
                       <div className="deal-img">
-                        <img src={item.image} alt={item.name} />
+                        <img src={item.image} alt={item.title} />
                       </div>
-                      <span className="deal-badge">{percentOff(item.price, item.listPrice) || DEFAULT_DEAL}% off</span>
+                      <span className="deal-badge">{percentOff(item.price, item.listPrice)}% off</span>
                       <span className="deal-label">{home.dealLabels[index]}</span>
                     </Link>
                   ))}
@@ -79,11 +104,11 @@ export default function HomePage({ store }: { store: Store }) {
 
         <section className="block">
           <div className="block-head">
-            <h2 className="block-title">Best Sellers in Video Games</h2>
+            <h2 className="block-title">Best Sellers in Clothing, Shoes &amp; Jewelry</h2>
             <span className="link">See More</span>
           </div>
           <div className="product-grid">
-            {store.items.map((item) => (
+            {items.slice(0, BEST_SELLERS).map((item) => (
               <ProductCard key={item.id} item={item} />
             ))}
           </div>

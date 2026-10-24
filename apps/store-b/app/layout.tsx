@@ -5,7 +5,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Electronics, Cars, Fashion, Collectibles & More | eBay",
-  description: "Buy and sell retro video games, consoles, and collectibles.",
+  description: "Buy and sell clothing, outerwear, and more.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

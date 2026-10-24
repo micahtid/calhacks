@@ -6,6 +6,8 @@
     ".": "./src/index.ts",
     "./document": "./src/Document.tsx",
     "./db": "./src/db.ts",
+    "./market": "./src/market.ts",
+    "./dates": "./src/dates.ts",
     "./x402": "./src/x402.ts",
     "./base.css": "./src/base.css",
     "./next-config": "./next-config.mjs",

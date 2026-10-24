@@ -11,8 +11,8 @@ export default function ProductCard({ item }: { item: Item }) {
           <Heart size={20} />
         </span>
       </div>
-      <span className="card-brand">{item.publisher}</span>
-      <span className="card-size">{item.platform}</span>
+      <span className="card-brand">{item.brand}</span>
+      <span className="card-size">{item.size}</span>
       <span className="card-price">
         {item.originalPrice && <s>{formatUsd(item.originalPrice)}</s>}
         <b>{formatUsd(item.price)}</b>

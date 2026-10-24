@@ -1,21 +1,28 @@
 import Link from "next/link";
+import { picker, priceTiers, topGroups } from "@calhacks/common";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
-import { Cartridge, Shield, Sparkle } from "@/components/Icons";
-import { ITEMS, PLATFORMS, byId, itemPath } from "@/lib/catalog";
+import { Hanger, Shield, Sparkle } from "@/components/Icons";
+import { itemPath, itemsOf, type Item } from "@/lib/catalog";
 
-const HERO_ART = ["pokemon-red-gb", "super-mario-world-snes", "mario-kart-64-n64"];
+const BRANDS = 6;
+const POPULAR = 20;
 
-const STATS = [
-  { icon: <Cartridge />, title: "10K+", text: "Games for Sale" },
-  { icon: <Sparkle />, title: "500+", text: "New Listings Every Day" },
-  { icon: <Shield />, title: "Buy Safely", text: "Depop Protection", link: true },
-];
+// Every highlight comes from what is listed right now: the biggest brands, the price points that split the catalog, and the live counts.
+export default async function Home() {
+  const items = await itemsOf();
+  // Each item shows in at most one highlight, so the hero and the brand circles never repeat a photo.
+  const pick = picker<Item>((item) => item.id);
+  const hero = pick(items, 3);
+  const brands = topGroups(items, (item) => item.brand, BRANDS).flatMap((group) => pick(group.items, 1).map((item) => ({ label: group.label, item })));
+  const prices = priceTiers(items.map((item) => item.price));
+  const stats = [
+    { icon: <Hanger />, title: items.length.toLocaleString("en-US"), text: "Items for Sale" },
+    { icon: <Sparkle />, title: new Set(items.map((item) => item.brand)).size.toLocaleString("en-US"), text: "Brands to Shop" },
+    { icon: <Shield />, title: "Buy Safely", text: "Depop Protection", link: true },
+  ];
 
-const PRICES = [3, 5, 10];
-
-export default function Home() {
   return (
     <>
       <Header />
@@ -27,14 +34,14 @@ export default function Home() {
                 <span className="on">Buy</span>
                 <span>Sell</span>
               </div>
-              <h1>Buy Preloved. Play It Your Way</h1>
-              <p>Together, we&apos;re keeping retro games in play.</p>
-              <Link href={itemPath(ITEMS[0])} className="hero-cta">
+              <h1>Buy Preloved. Wear It Your Way</h1>
+              <p>Together, we&apos;re keeping great clothes in circulation.</p>
+              <Link href={itemPath(items[0])} className="hero-cta">
                 Shop Now
               </Link>
               <div className="stats">
-                {STATS.map((stat) => (
-                  <div key={stat.title} className="stat">
+                {stats.map((stat) => (
+                  <div key={stat.text} className="stat">
                     {stat.icon}
                     <b>{stat.title}</b>
                     <span className={stat.link ? "underline" : undefined}>{stat.text}</span>
@@ -43,8 +50,8 @@ export default function Home() {
               </div>
             </div>
             <div className="hero-art">
-              {HERO_ART.map((id) => (
-                <img key={id} src={byId(id).image} alt="" />
+              {hero.map((item) => (
+                <img key={item.id} src={item.image} alt="" />
               ))}
             </div>
           </div>
@@ -52,12 +59,12 @@ export default function Home() {
 
         <div className="page">
           <section className="section">
-            <h2>Shop by Platform</h2>
+            <h2>Shop by Brand</h2>
             <div className="circles">
-              {PLATFORMS.map(({ label, id }) => (
-                <Link key={label} href={itemPath(byId(id))} className="circle">
+              {brands.map(({ label, item }) => (
+                <Link key={label} href={itemPath(item)} className="circle">
                   <div className="circle-img">
-                    <img src={byId(id).image} alt="" />
+                    <img src={item.image} alt="" />
                   </div>
                   <span>{label}</span>
                 </Link>
@@ -68,7 +75,7 @@ export default function Home() {
           <section className="section">
             <h2>Popular This Week</h2>
             <div className="grid">
-              {ITEMS.map((item) => (
+              {items.slice(0, POPULAR).map((item) => (
                 <ProductCard key={item.id} item={item} />
               ))}
             </div>
@@ -77,7 +84,7 @@ export default function Home() {
           <section className="section">
             <h2>Shop by Price</h2>
             <div className="prices">
-              {PRICES.map((price) => (
+              {prices.map((price) => (
                 <span key={price} className="price-tile">
                   Under <b>${price}</b>
                 </span>

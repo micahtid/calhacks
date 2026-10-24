@@ -5,28 +5,32 @@ import { Heart, formatUsd, percentOff } from "@calhacks/common";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
-import Stars from "@/components/Stars";
 import { Shield, Truck } from "@/components/Icons";
-import { ITEMS, REVIEWS, getItem, sellerOf } from "@/lib/catalog";
+import { getItem, itemsOf } from "@/lib/catalog";
 
 // Every item page is built ahead of time from the catalog, so this route can wait on its params.
 export const instant = false;
 
-export function generateStaticParams() {
-  return ITEMS.map((item) => ({ slug: item.slug }));
+const PHOTOS = 6;
+
+export async function generateStaticParams() {
+  return (await itemsOf()).map((item) => ({ slug: item.slug }));
 }
 
 export async function generateMetadata({ params }: PageProps<"/products/[slug]">): Promise<Metadata> {
-  const item = getItem((await params).slug);
+  const item = await getItem((await params).slug);
   return { title: item ? `${item.title} | Depop` : "Depop" };
 }
 
 export default async function ProductPage({ params }: PageProps<"/products/[slug]">) {
-  const item = getItem((await params).slug);
+  const item = await getItem((await params).slug);
   if (!item) notFound();
 
-  const seller = sellerOf(item);
-  const more = ITEMS.filter((other) => other.id !== item.id).slice(0, 5);
+  const { seller } = item;
+  // More from the same brand comes first, then the rest of the catalog.
+  const others = (await itemsOf()).filter((other) => other.id !== item.id);
+  const more = [...others.filter((other) => other.brand === item.brand), ...others.filter((other) => other.brand !== item.brand)].slice(0, 5);
+  const attrs = [item.brand, item.size && `Size ${item.size}`, item.condition, item.colour].filter(Boolean);
 
   return (
     <>
@@ -34,15 +38,25 @@ export default async function ProductPage({ params }: PageProps<"/products/[slug
       <main className="page">
         <nav className="crumbs">
           <Link href="/">Home</Link>
-          <span>›</span>
-          <span>Video Games</span>
-          <span>›</span>
-          <span>{item.platform}</span>
+          {item.category && (
+            <>
+              <span>›</span>
+              <span>{item.category}</span>
+            </>
+          )}
+          {item.brand && (
+            <>
+              <span>›</span>
+              <span>{item.brand}</span>
+            </>
+          )}
         </nav>
 
         <div className="product">
           <div className="gallery">
-            <img src={item.image} alt={item.title} />
+            {item.images.slice(0, PHOTOS).map((image, index) => (
+              <img key={`${index}-${image}`} src={image} alt={index === 0 ? item.title : ""} />
+            ))}
           </div>
 
           <aside className="details">
@@ -57,9 +71,7 @@ export default async function ProductPage({ params }: PageProps<"/products/[slug
                 <span className="off">{percentOff(item.price, item.originalPrice)}% OFF</span>
               </div>
             )}
-            <p className="attrs">
-              {item.platform} • {item.condition} • {item.publisher}
-            </p>
+            <p className="attrs">{attrs.join(" • ")}</p>
 
             <div className="actions">
               <button type="button" className="btn-buy">
@@ -68,8 +80,8 @@ export default async function ProductPage({ params }: PageProps<"/products/[slug
               <button type="button" className="btn-bag">
                 Add to Bag
               </button>
-              <button type="button" className="btn-like">
-                <Heart size={18} /> {item.likes}
+              <button type="button" className="btn-like" aria-label="Like">
+                <Heart size={18} />
               </button>
             </div>
 
@@ -94,13 +106,7 @@ export default async function ProductPage({ params }: PageProps<"/products/[slug
               </span>
               <div>
                 <b>{seller.handle}</b>
-                <p className="muted">
-                  {seller.sold.toLocaleString("en-US")} sold · {seller.active}
-                </p>
-                <span className="rating-line">
-                  <Stars rating={seller.rating} />
-                  <span className="muted small">({seller.reviewCount})</span>
-                </span>
+                {seller.location && <p className="muted">{seller.location}</p>}
               </div>
             </div>
             <div className="seller-btns">
@@ -110,27 +116,9 @@ export default async function ProductPage({ params }: PageProps<"/products/[slug
 
             <div className="description">
               <p>{item.description}</p>
-              <p className="muted small">
-                {item.listed} · {seller.location}
-              </p>
             </div>
           </aside>
         </div>
-
-        <section className="section">
-          <h2>Reviews for {seller.handle}</h2>
-          <div className="reviews">
-            {REVIEWS.map((review) => (
-              <div key={review.author} className="review">
-                <Stars rating={review.rating} />
-                <p>{review.body}</p>
-                <span className="muted small">
-                  {review.author} · {review.date}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
 
         <section className="section">
           <h2>You May Also Like</h2>

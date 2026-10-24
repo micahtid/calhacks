@@ -18,10 +18,10 @@ export function Bag() {
   );
 }
 
-export function Cartridge() {
+export function Hanger() {
   return (
     <svg width="18" height="18" viewBox="0 0 20 20" aria-hidden>
-      <path d="M4 2h12v16H4zM7 18v-3h6v3M7 5h6v5H7z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M8 5a2 2 0 1 1 2 2v2L2.5 14.5A1 1 0 0 0 3 16h14a1 1 0 0 0 .5-1.5L10 9" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }

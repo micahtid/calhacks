@@ -8,7 +8,7 @@ export default function ProductCard({ item, label }: { item: Item; label?: strin
   return (
     <Link href={itemPath(item)} className="product-card">
       <div className="product-img">
-        <img src={item.image} alt={item.name} />
+        <img src={item.image} alt={item.title} />
       </div>
       <span className="clamp-2 link-title">{item.title}</span>
       {label && <span className="muted small">{label}</span>}

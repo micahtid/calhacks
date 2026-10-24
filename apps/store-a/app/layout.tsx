@@ -6,7 +6,7 @@ import "@calhacks/amazon/styles.css";
 
 export const metadata: Metadata = {
   title: store.title,
-  description: "Shop retro video games, consoles, and accessories.",
+  description: "Shop clothing, outerwear, and winter essentials.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

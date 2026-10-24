@@ -24,10 +24,10 @@ export type Listing = {
   path: string;
 };
 
-// Each store describes itself once, and the same checkout runs on top of it.
+// Each store describes itself once, and the same checkout runs on top of it. The listings load from the scraped catalog.
 export type Merchant = {
   name: string;
-  listings: Listing[];
+  listings: () => Promise<Listing[]>;
 };
 
 type ShipTo = { name: string; address: string };
@@ -48,9 +48,9 @@ function checkoutUrl(listing: Listing): string {
   return `/api/checkout/${encodeURIComponent(listing.key)}`;
 }
 
-function listingAt(merchant: Merchant, path: string): Listing | undefined {
+async function listingAt(merchant: Merchant, path: string): Promise<Listing | undefined> {
   const key = decodeURIComponent(path.split("/").filter(Boolean).pop() ?? "");
-  return merchant.listings.find((listing) => listing.key === key);
+  return (await merchant.listings()).find((listing) => listing.key === key);
 }
 
 function isShipTo(value: unknown): value is ShipTo {
@@ -68,7 +68,7 @@ function priceRange(listings: Listing[]) {
 export function checkoutRoute(merchant: Merchant) {
   // This runs only after the payment is verified. The payment settles only if this returns a status below 400.
   async function placeOrder(req: NextRequest): Promise<NextResponse<unknown>> {
-    const listing = listingAt(merchant, req.nextUrl.pathname)!;
+    const listing = (await listingAt(merchant, req.nextUrl.pathname))!;
     const body = await req.json().catch(() => null);
     if (!isShipTo(body?.shipTo)) {
       return NextResponse.json({ error: "A shipTo name and address are required." }, { status: 400 });
@@ -94,7 +94,7 @@ export function checkoutRoute(merchant: Merchant) {
           scheme: "exact",
           network: PAYMENT.network,
           payTo: () => payTo(),
-          price: (ctx) => formatUsd(listingAt(merchant, ctx.path)!.price),
+          price: async (ctx) => formatUsd((await listingAt(merchant, ctx.path))!.price),
           maxTimeoutSeconds: 120,
         },
         description: `${merchant.name} checkout`,
@@ -105,7 +105,7 @@ export function checkoutRoute(merchant: Merchant) {
   );
 
   return async function POST(req: NextRequest) {
-    const listing = listingAt(merchant, req.nextUrl.pathname);
+    const listing = await listingAt(merchant, req.nextUrl.pathname);
     if (!listing) return NextResponse.json({ error: "Item not found." }, { status: 404 });
     if (!listing.inStock) return NextResponse.json({ error: "Item is out of stock." }, { status: 409 });
     return paidCheckout(req);
@@ -115,10 +115,11 @@ export function checkoutRoute(merchant: Merchant) {
 // GET /api/catalog lists every listing with where to view it and where to buy it.
 export function catalogRoute(merchant: Merchant) {
   return async function GET() {
+    const listings = await merchant.listings();
     return Response.json({
       store: merchant.name,
       currency: PAYMENT.currency,
-      items: merchant.listings.map((listing) => ({ ...listing, checkoutUrl: checkoutUrl(listing) })),
+      items: listings.map((listing) => ({ ...listing, checkoutUrl: checkoutUrl(listing) })),
     });
   };
 }
@@ -128,13 +129,14 @@ export function storeInfoRoute(merchant: Merchant) {
   return async function GET() {
     // The wallet comes from the environment, so this runs per request instead of at build time.
     await connection();
+    const listings = await merchant.listings();
     return Response.json({
       name: merchant.name,
-      sellers: [...new Set(merchant.listings.map((listing) => listing.seller))],
+      sellers: [...new Set(listings.map((listing) => listing.seller))],
       payTo: payTo(),
       network: PAYMENT.network,
       currency: PAYMENT.currency,
-      priceRange: priceRange(merchant.listings),
+      priceRange: priceRange(listings),
       endpoints: {
         catalog: "/api/catalog",
         checkout: "/api/checkout/{key}",
