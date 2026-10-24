@@ -1,5 +1,5 @@
-"""Group B: rows split by base listing (train / calibrate / val), threshold picked on calibrate, policy-bounded
-families reported apart from recall."""
+"""Rows split by base listing (train / calibrate / val), the threshold picked on out-of-fold scores of the fitted rows
+(never on val), policy-bounded families reported apart from recall."""
 from collections import defaultdict
 
 import numpy as np
@@ -30,17 +30,17 @@ def test_every_base_listing_sits_on_exactly_one_side(repo):
     assert set(counts) == {"train", "calibrate", "val"}
 
 
-def test_model_is_fitted_on_train_and_counts_each_side(trained, models_dir, repo):
+def test_model_is_fitted_on_train_and_calibrate_and_counts_each_side(trained, models_dir, repo):
     meta = load(trained["model_id"], models_dir).meta
     ex = load_examples(repo)
     l1 = run_layer1(to_inputs(ex, repo.reference_snapshot()))
-    assert meta["n_train"] == sum(e.split == "train" and passed(c) for e, c in zip(ex, l1))
+    assert meta["n_train"] == sum(e.split in ("train", "calibrate") and passed(c) for e, c in zip(ex, l1))
     assert meta["n_calibrate"] == sum(e.split == "calibrate" for e in ex)
     assert meta["n_val"] == sum(e.split == "val" for e in ex)
 
 
-def test_threshold_comes_from_calibrate_not_val(tmp_path, monkeypatch, repo):
-    """pick_threshold must receive exactly the calibrate legit rows that pass Layer 1, never the val ones."""
+def test_threshold_comes_from_out_of_fold_scores_never_val(tmp_path, monkeypatch, repo):
+    """pick_threshold receives one out-of-fold score per legit fitted row (train + calibrate, passing Layer 1)."""
     from gatepy import train as train_mod
     seen = []
     real_pick = train_mod.pick_threshold
@@ -49,25 +49,35 @@ def test_threshold_comes_from_calibrate_not_val(tmp_path, monkeypatch, repo):
     meta = load(out["model_id"], tmp_path).meta
     ex = load_examples(repo)
     l1 = run_layer1(to_inputs(ex, repo.reference_snapshot()))
-    legit_l2 = lambda side: sum(e.split == side and passed(c) and e.key.label == "legit" for e, c in zip(ex, l1))
-    assert legit_l2("calibrate") != legit_l2("val")  # the two sides differ, so the check below is conclusive
-    assert seen == [legit_l2("calibrate")] == [meta["threshold_rule"]["n"]]
-    assert meta["threshold_rule"]["on"].startswith("calibrate")
-    m = load(out["model_id"], tmp_path)
-    cal = [x for x, e, c in zip(to_inputs(ex, repo.reference_snapshot()), ex, l1)
-           if e.split == "calibrate" and passed(c) and e.key.label == "legit"]
-    assert abs(m.threshold - real_pick(m.predict_risk(featurize(cal, select(m.features))), meta["threshold_rule"]["max_fpr"])) < 1e-12
+    fitted_legit = sum(e.split in ("train", "calibrate") and passed(c) and e.key.label == "legit" for e, c in zip(ex, l1))
+    val_legit = sum(e.split == "val" and passed(c) and e.key.label == "legit" for e, c in zip(ex, l1))
+    assert seen == [fitted_legit] == [meta["threshold_rule"]["n"]] and fitted_legit != val_legit
+    assert meta["threshold_rule"]["on"].startswith("out-of-fold")
 
 
-def test_threshold_falls_back_to_train_when_calibrate_has_no_legit(tmp_path, monkeypatch):
-    r = fresh_repo("no_calibrate")
-    seed(r, n_real=60, n_synth=120, seed_=3)
-    real = dataset.split_of
-    monkeypatch.setattr(dataset, "split_of", lambda lid, base=None: "train" if real(lid, base) == "calibrate"
-                        else real(lid, base))
-    out = train(1, GATE_DIR / "train_config.yaml", out=tmp_path, repo=r)
-    meta = load(out["model_id"], tmp_path).meta
-    assert meta["n_calibrate"] == 0 and meta["threshold_rule"]["on"].startswith("train legit rows (fallback")
+def test_out_of_fold_scores_never_come_from_a_model_that_saw_the_base_listing():
+    from gatepy.train import oof_risk
+    rng = np.random.default_rng(0)
+    groups = [f"G{i // 3}" for i in range(120)]           # 40 base listings, 3 copies each
+    y = np.array([int(g[1:]) % 2 for g in groups])         # label is a property of the base listing
+    X = rng.normal(size=(120, 2))                           # features carry no signal
+    from types import SimpleNamespace
+    fs = [SimpleNamespace(name="a", monotone=0), SimpleNamespace(name="b", monotone=0)]
+    risk = oof_risk("logreg", X, y, groups, fs, {})
+    assert not np.isnan(risk).any()
+    # memorizing copies would separate the classes; out of fold, noise features can't
+    from sklearn.metrics import roc_auc_score
+    assert roc_auc_score(y, risk) < 0.75
+
+
+def test_threshold_rests_on_every_fitted_legit_row(tmp_path):
+    """The old calibrate-only rule picked the cut from ~50 legit rows, so one high scorer could move it from 0.43 to
+    0.97. Out-of-fold scoring uses every legit row the model was fitted on."""
+    r = fresh_repo("stable_threshold")
+    seed(r, n_real=120, n_synth=240, seed_=5)
+    a = train(1, GATE_DIR / "train_config.yaml", out=tmp_path / "a", repo=r)
+    meta = load(a["model_id"], tmp_path / "a").meta
+    assert meta["threshold_rule"]["n"] >= 100
 
 
 def _ex(i, family, label):

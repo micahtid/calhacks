@@ -372,7 +372,7 @@ Two layers decide whether the wallet may pay; both must say yes. Details: `gate/
   domain and wallet lookalikes, injection and hidden-text scores, review similarity. Each decision carries its top 3 reasons.
   Feature files are checked statically before import (`gatepy.sandbox`): no file, env, network or object-graph access.
 - **Data:** training and evaluation read listings, mandates and references from MongoDB (`MONGODB_DB_REDTEAM`); answer keys
-  are used only for scoring. Rows split by base listing into train (fit) / calibrate (threshold) / val (promotion);
+  are used only for scoring. Rows split by base listing into train + calibrate (fit, and the threshold from out-of-fold scores) / val (promotion);
   unknown-seller scams are reported apart as `policy_bounded_recall`. `uv run --project gate gate-train --round N`, `uv run --project gate gate-eval --model promoted`.
 - **Purchase time:** `gatepy.serve` scores a `GateRequest` (`POST /gate/risk`), fetching the listing and references itself
   and failing closed.
@@ -435,8 +435,8 @@ listings live in MongoDB through `calhacks-contracts`; nothing is read from loca
   coordinator sees recall and false blocks; the operator also gets Layer 2 false blocks, policy-bounded recall, recall
   on seen vs held-out families and 95% intervals from a bootstrap clustered by base listing
   (`holdout.v3.history.jsonl`, next to the holdout).
-- **Honest measurement:** every split is by base listing (`calhacks_contracts.splits`: train 70%, calibrate 10% for
-  the threshold, validation 20%), so copies of one listing never sit on both sides. Recall leaves out policy-bounded
+- **Honest measurement:** every split is by base listing (`calhacks_contracts.splits`: train 70% and calibrate 10%, both fitted on, with
+  the threshold from 5-fold out-of-fold scores grouped by base listing; validation 20%), so copies of one listing never sit on both sides. Recall leaves out policy-bounded
   families (`unknown_seller`, capped by the $100 rule rather than detected) and reports them as policy-bounded recall.
   The coordinator never sees the held-out family names: they are not in its prompt, tools or coverage, asking for one
   gets the same "unknown family" error as a typo, and the guard hook blocks reading tests and whole-workspace searches.

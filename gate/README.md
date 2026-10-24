@@ -62,10 +62,11 @@ cd gate && uv run pytest                                # mongomock, never Atlas
 - On revert, call `gatepy.model_io.restore_features("promoted")`: features are edited in place, so a rejected
   candidate's code would otherwise stay live. Each model file carries its feature sources.
 - Rows are split by base listing (`calhacks_contracts.splits`), so every copy of one listing sits on one side:
-  **train** (70%) fits Layer 2 on rows that pass Layer 1; **calibrate** (10%) picks the threshold, the lowest risk cut
-  with calibrate false blocks (legit rows reaching Layer 2) at most `threshold.max_fpr`; **val** (20%) is reported as
-  `val_metrics` and used for promotion. If calibrate has no legit rows the threshold falls back to train legit rows;
-  the model file's `threshold_rule` records which was used. `gate-eval --split train|calibrate|val|all`.
+  **train** (70%) and **calibrate** (10%) fit Layer 2 on rows that pass Layer 1. The threshold is the lowest risk cut
+  whose false blocks on those rows' legit part are at most `threshold.max_fpr`, scored **out of fold** (5 folds grouped
+  by base listing, so no row is scored by a model that saw its base listing). That uses every fitted legit row, not
+  the few dozen in calibrate, so one borderline listing can't swing the cut. **val** (20%) is reported as
+  `val_metrics` and used for promotion. The model file's `threshold_rule` records the rule and row count. `gate-eval --split train|calibrate|val|all`.
 - Metrics: policy-bounded scam families (`families.json` `policy_bounded`, today `unknown_seller`) are excluded from
   `recall` / `layer2_recall` and reported as `policy_bounded_recall`; `per_family` still lists them.
 - `gatepy.serve.Gate(...).score(GateRequest)` / `make_router()` (`POST /gate/risk`) are for the wallet. The Gate fetches
