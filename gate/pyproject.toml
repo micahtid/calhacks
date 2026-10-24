@@ -1,10 +1,10 @@
 [project]
 name = "gate"
 version = "0.1.0"
-description = "Payment Gate Layer 2: features, training, evaluation and scoring"
+description = "Payment Gate Layer 2: features, training, evaluation and scoring on MongoDB data"
 requires-python = ">=3.13"
 dependencies = [
-    "jsonschema>=4.23",
+    "calhacks-contracts",
     "lightgbm>=4.5,<4.7",  # 4.7.0 crashes (access violation in LGBM_DatasetSetField) on Windows
     "numpy>=2.1",
     "pydantic>=2.9",
@@ -18,10 +18,12 @@ serve = ["fastapi>=0.115"]
 [project.scripts]
 gate-train = "gatepy.train:main"
 gate-eval = "gatepy.evaluate:main"
-gate-fixtures = "gatepy.fixtures:main"
 
 [dependency-groups]
-dev = ["pytest>=8.3", "httpx>=0.27", "fastapi>=0.115"]
+dev = ["pytest>=8.3", "httpx>=0.27", "fastapi>=0.115", "mongomock>=4.3"]
+
+[tool.uv.sources]
+calhacks-contracts = { path = "../contracts", editable = true }
 
 [build-system]
 requires = ["hatchling"]

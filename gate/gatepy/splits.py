@@ -1,6 +1,4 @@
-"""The one train/val split rule (contracts/interfaces.md). Holdout rows never live under the data root."""
-import hashlib
+"""The one train/val split rule lives in calhacks_contracts; re-exported here for convenience."""
+from calhacks_contracts.splits import split_of
 
-
-def split_of(snapshot_id: str) -> str:
-    return "val" if int(hashlib.sha256(snapshot_id.encode("utf-8")).hexdigest(), 16) % 5 == 0 else "train"
+__all__ = ["split_of"]

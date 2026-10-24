@@ -1,4 +1,8 @@
-"""Feature plugin registry. Modules in gate/features/ register pure functions with @feature(name, monotone=...)."""
+"""Feature plugin registry. Modules in gate/features/ register pure functions of a GateInput with @feature.
+
+A feature sees only the GateInput (mandate, the listing the Gate fetched itself, references the Gate looked up):
+never the answer key, generator info, listing meta or where the listing came from.
+"""
 import builtins
 import hashlib
 import importlib
@@ -9,12 +13,12 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 
+from calhacks_contracts import GateInput
+
 import features as features_pkg
 from gatepy import GATE_DIR
-from gatepy.contracts import Snapshot
-from gatepy.context import Ctx
 
-FeatureFn = Callable[[Snapshot, Ctx], float]
+FeatureFn = Callable[[GateInput], float]
 
 
 @dataclass(frozen=True)
@@ -63,8 +67,8 @@ def select(names: list[str] | str, exclude: list[str] = ()) -> list[Feature]:
     return [reg[n] for n in chosen if n not in exclude]
 
 
-def compute(s: Snapshot, ctx: Ctx, feats: list[Feature]) -> list[float]:
-    return [float(f.fn(s, ctx)) for f in feats]
+def compute(x: GateInput, feats: list[Feature]) -> list[float]:
+    return [float(f.fn(x)) for f in feats]
 
 
 def feature_code_hash() -> str:
@@ -83,24 +87,25 @@ def _forbid(*_a, **_k):
     raise _Forbidden("features must not do I/O or use the network")
 
 
-def self_test(feats: list[Feature], snapshots: list[Snapshot], ctx: Ctx) -> list[str]:
+def self_test(feats: list[Feature], inputs: list[GateInput]) -> list[str]:
     """Every feature must return the same finite float twice, without opening files or sockets."""
     errors = []
     saved = builtins.open, socket.socket, socket.create_connection
     builtins.open, socket.socket, socket.create_connection = _forbid, _forbid, _forbid
     try:
         for f in feats:
-            for s in snapshots:
+            for x in inputs:
+                lid = x.listing.listing_id
                 try:
-                    a, b = f.fn(s, ctx), f.fn(s, ctx)
+                    a, b = f.fn(x), f.fn(x)
                     if isinstance(a, bool) or not isinstance(a, (int, float)):
-                        errors.append(f"{f.name}: returned {type(a).__name__} on {s.id}")
+                        errors.append(f"{f.name}: returned {type(a).__name__} on {lid}")
                     elif not math.isfinite(a):
-                        errors.append(f"{f.name}: non-finite {a!r} on {s.id}")
+                        errors.append(f"{f.name}: non-finite {a!r} on {lid}")
                     elif a != b:
-                        errors.append(f"{f.name}: not deterministic on {s.id} ({a} vs {b})")
+                        errors.append(f"{f.name}: not deterministic on {lid} ({a} vs {b})")
                 except Exception as e:  # noqa: BLE001 - any failure fails the self-test
-                    errors.append(f"{f.name}: {type(e).__name__}: {e} on {s.id}")
+                    errors.append(f"{f.name}: {type(e).__name__}: {e} on {lid}")
                     break
     finally:
         builtins.open, socket.socket, socket.create_connection = saved
