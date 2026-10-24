@@ -49,12 +49,15 @@ button {
   overflow: hidden;
 }
 
+/* Clamped text always reserves its full number of lines, so whatever follows it lines up across a row of cards. */
 .clamp-2 {
   -webkit-line-clamp: 2;
+  min-height: 2lh;
 }
 
 .clamp-3 {
   -webkit-line-clamp: 3;
+  min-height: 3lh;
 }
 
 .sr-only {
