@@ -1,15 +1,18 @@
 // Sample chats and transactions until the FastAPI backend serves real ones.
 
+import type { Run } from "./run";
+
 export type Message = { role: "user" | "agent"; text: string };
 
 export type Chat = {
   id: string;
   title: string;
-  status: "searching" | "bought" | "stopped";
+  // "ready": Hunter picked a safe listing, but payments aren't connected yet.
+  status: "searching" | "ready" | "bought" | "stopped";
   // Disabled chats still list in the sidebar but cannot be opened.
   disabled?: boolean;
-  // Demo chats play the scripted Hunter run instead of listing messages.
-  demo?: boolean;
+  // Live chats stream a Hunter run for `prompt`; `saved` is the finished run, shown without streaming again.
+  live?: { prompt: string; saved?: Run };
   messages: Message[];
 };
 

@@ -33,7 +33,7 @@ An AI shopping agent you can actually trust with your money. The LLM finds deals
 LLM side (no wallet)            Code side (holds wallet)         Payment rails
 ---------------------           ------------------------         -------------
 You (goal + rules)              Gate (buy / skip)                Facilitator (x402.org)
-Scout (Claude)          ---->   Wallet (viem signer)     ---->   Base Sepolia (USDC)
+Scout (Bitdeer GLM)     ---->   Wallet (viem signer)     ---->   Base Sepolia (USDC)
 Listings (Apify crawler)        CRS (optional)
                                 Storefronts (real + scam)
 Training loop: Factory (Fix Droid), Bitdeer (scam writer)
@@ -132,9 +132,21 @@ Browser (Vercel)  <- SSE -  agent API (Railway, FastAPI)  <- NDJSON -  store-cra
     joins text nodes with spaces in document order, and collects `hiddenText` (`hidden`, `sr-only`, inline
     `display:none` and similar). Text hidden by stylesheet rules is not detected.
   - Standby URLs collapse `//` in query strings, so store URLs are normalized (`https:/host` and bare hosts work).
-- **Agent API** (`apps/agent/api/app`): `GET /search?q=&max=` relays the Actor's events as SSE (`event:` is the
-  event type). Searches cover `STORE_URLS`, by default mzn, by, dpp and the mzn Official Outlet scam store. If the
+- **Agent API** (`apps/agent/api/app`): `GET /search?q=&max=&max_price=` relays the Actor's events as SSE (`event:`
+  is the event type). Searches cover `STORE_URLS`, by default mzn, by, dpp and the mzn Official Outlet scam store. If the
   Actor can't be reached, the stream sends one `error` event and ends.
+- **Mock Gate** (`app/gate.py`, until the real Gate can judge live listings): right after each item's `page` (or
+  page `error`) the stream sends a `verdict` event with the contracts' `GateDecision` fields plus `store` and `key`,
+  with `model_version: "mock"`. The UI can be built against it now, and the real Gate can replace it without changing
+  the stream.
+  - Layer 1: the store's domain must be mzn, by or dpp (`L1_SELLER_UNTRUSTED`), and the price must be at most
+    `max_price` (`L1_OVER_MAX`). It checks domains, not wallets, because the hosted stores and the outlet share one
+    test wallet.
+  - Layer 2 (hand-weighted, threshold 0.5): prompt-injection phrases in the page or hidden text (0.7), any hidden
+    text (0.6), and a price under 10% of the search's median price so far (0.6).
+  - A page that could not be fetched is a skip with `decided_by: null` and an `error`, like the real Gate's fail-closed 503.
+  - On a live search of all 686 listings it skipped all 148 outlet listings at Layer 1 and approved every real one.
+  - Self-check: `uv run python -m app.gate` (from `apps/agent/api`).
 - **Measured** (agent API -> Standby, `q=fleece jacket`, 10 per store, 3 stores): first listing 0.2-0.5s, all 30 pages
   in about 2s. All 317 items take 3.0s at 4 GB and 18.5s at 1 GB: Apify gives CPU in proportion to memory, and
   parsing (~10ms a page) needs it. Standby is set to 4 GB in the Apify console. The first request after 5 minutes idle
@@ -148,8 +160,57 @@ Browser (Vercel)  <- SSE -  agent API (Railway, FastAPI)  <- NDJSON -  store-cra
 | `APIFY_TOKEN` | agent API | Apify token, sent as a Bearer header to the Standby URL |
 | `STORE_URLS` | agent API | Optional comma-separated store origins (default: the four hntr.store stores) |
 | `CORS_ORIGINS` | agent API | Comma-separated browser origins allowed to call the API (default `http://localhost:3000`) |
+| `BITDEER_API_KEY` | agent API | Bitdeer Model Studio key for the Scout |
+| `BITDEER_MODEL` | agent API | Optional model id (default `zai-org/GLM-5.3-Flash`) |
+| `NEXT_PUBLIC_AGENT_API_URL` | agent web | Agent API origin, inlined at build time (default `http://localhost:8000`) |
+| `BUYER_PRIVATE_KEY` | agent API | Hunter's wallet key; signs x402 payments in `app/pay.py`. Unset: runs stop before paying |
+| `SHIP_TO_NAME`, `SHIP_TO_ADDRESS` | agent API | Optional ship-to sent at checkout (default a demo address; nothing ships) |
 
-Railway: root directory `apps/agent/api`, start command `uv run fastapi run app/main.py --port $PORT`.
+Locally the agent API reads `apps/agent/api/.env` and the web app `apps/agent/web/.env.local`; both have a
+`.env.example`. Railway: root directory `apps/agent/api`, start command `uv run fastapi run app/main.py --port $PORT`.
+
+## Hunter chat run (Scout + live search)
+
+A new chat in the agent web app is one live run: the browser opens `GET /chat?prompt=` on the agent API as an
+`EventSource`, and the stages fill in as events arrive. The Scout is the LLM (Bitdeer, `zai-org/GLM-5.3-Flash`,
+OpenAI-compatible at `https://api-inference.bitdeer.ai/v1`); it never touches money.
+
+1. **Understand** (`app/scout.py`): the model reads the request and returns JSON with `item`, `query` (1-3 title
+   words), `max_price` and 2-4 `thoughts`, all validated in code. Sent as `thought` and `instruction` events.
+2. **Search and check:** the live search above with that query and limit, 25 listings per store, and a mock Gate
+   `verdict` per listing. If a query finds nothing, it is retried with its first word dropped ("warm fleece jacket",
+   then "fleece jacket", then "jacket"), with a `search` event per query. Page text stays on the server for the Scout.
+3. **Pick:** the model ranks up to 30 of the cheapest Gate-approved listings and returns up to 3 picks with a
+   one-line note. Listing text is passed as untrusted data, and a pick that doesn't name an offered listing is dropped.
+   If the model fails or names nothing usable, the 3 cheapest approved listings are picked in code.
+4. **Pay** (`app/pay.py`): the best pick is bought over x402 in the six steps the UI lists, each sent as a
+   `checkout {step, state, detail}` event: start checkout (POST with a ship-to, the store answers 402), read the price
+   and wallet from `PAYMENT-REQUIRED`, double-check in code (USDC on Base Sepolia, amount equals the listed price,
+   `payTo` equals the store.json wallet, within the limit), sign an EIP-3009 `TransferWithAuthorization` for exactly
+   that amount with `BUYER_PRIVATE_KEY`, POST again with `PAYMENT-SIGNATURE`, and read the order and the transaction
+   hash (`PAYMENT-RESPONSE`). A `receipt` event follows a real payment. The facilitator pays gas, so the wallet needs
+   USDC but no ETH. Without `BUYER_PRIVATE_KEY` the run stops at "Approve the Exact Amount" (`state: blocked`) and
+   nothing is signed. A failed check stops before signing.
+   - Verified without paying: all four stores answer a correct v2 402, and a payload signed by `app/pay.py` with an
+     unfunded key was rejected by the x402.org facilitator's `/verify` only for insufficient USDC balance.
+5. **End:** `end` with `status: bought`, `ready` (everything checked, no wallet key) or `stopped`.
+
+- **Reasoning:** GLM-5.3-Flash streams its thinking as `reasoning_content`. The agent API forwards it as
+  `reasoning {stage: understand|pick, text}` events, and the UI shows it under a "Show Reasoning" toggle in the
+  Understanding and Picking stages, collapsed by default. Reasoning counts against `max_tokens`, so calls allow 6000
+  (at 600 the answer came back empty).
+- **UI** (`apps/agent/web`): the same stages, summaries and receipt as the scripted demo it replaced
+  ("192 Safe · 59 Scams Blocked", "mzn · 8.50 USDC", "Paid 8.50 USDC"), filled from the stream. Found listings
+  join the feed one every 55ms and are checked one every 70ms (checking starts once every found listing is on screen),
+  and each checkout step appears once its event arrives. Blocked rows show "Fake Store Website", "Hidden
+  Instructions", "Too Cheap to Be Real" and similar. Listings over the user's limit are left out of the stream, as a
+  price filter; the Gate and the checkout double-check still enforce the limit. The receipt shows the real payer,
+  store wallet, order id, time and Basescan link; the store gives no delivery date, so there is no "Arrives" row.
+- A run lives in its chat view: leaving a chat mid-run ends the stream and coming back starts it over. Finished runs
+  are kept with the chat and shown without streaming again.
+- **Measured** (local agent API, warm Standby Actor): first reasoning at 0.7s, request understood at 1.7-1.9s, first
+  listing about 0.3-2.6s later, search and checks done by 5-12s, picks at 9.7-18.9s. The pick call takes 4-7s.
+- Self-check: `uv run python -m app.scout` (from `apps/agent/api`).
 
 ## Shared contracts (red team + Gate)
 
@@ -278,8 +339,10 @@ Keep this section current (see `AGENTS.md`).
 - [x] Scam storefront (mzn Official Outlet: lookalike brand, too cheap, prompt injection, fake reviews)
 - [ ] Apify listing ingestion
 - [x] Live store search: store-crawler Apify Standby Actor streaming listings and item pages, relayed as SSE by the agent API (`GET /search`)
-- [ ] Demo UI wired to `GET /search` (the chat still plays the scripted demo)
-- [ ] Scout (Claude) agent loop
+- [x] Mock Gate verdicts in the search stream (`GateDecision` shape, `model_version: "mock"`), standing in for the real Gate
+- [x] Agent web chat runs live from `GET /chat` in the demo's design (editable prompt, live feed and checks, picks, collapsed reasoning, checkout steps, receipt)
+- [x] x402 checkout in the agent API (`app/pay.py`): real 402, double-check, EIP-3009 signing, settlement; `BUYER_PRIVATE_KEY` is the calhacks-plan demo wallet (`0x7D06…Cea8`, also in `apps/agent/web/lib/wallet.ts`), which needs more faucet USDC before it can pay
+- [x] Scout on Bitdeer GLM-5.3-Flash: reads the request, ranks Gate-approved listings, streams its reasoning (`GET /chat`)
 - [x] Gate Layer 1: fixed TypeScript rules over the issue #1 `GateInput`
 - [x] Gate Layer 2: LightGBM risk model trained and evaluated on MongoDB data, `POST /gate/risk`
 - [ ] Wallet signer + x402 payment against Base Sepolia

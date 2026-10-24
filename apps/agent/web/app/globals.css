@@ -416,6 +416,12 @@ svg {
   background: var(--amber);
 }
 
+/* Picked a safe listing, but nothing is paid until payments are connected. */
+.badge.ready::before {
+  background: transparent;
+  border: 1.5px solid var(--green);
+}
+
 /* Chat */
 
 .chat {
@@ -850,6 +856,33 @@ kbd {
   font-size: 12.5px;
 }
 
+/* The model's raw reasoning: folded by default, and scrolls inside its box when opened. */
+.reasoning summary {
+  width: fit-content;
+  color: var(--text-3);
+  font-size: 12.5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.reasoning summary:hover {
+  color: var(--text-2);
+}
+
+.reasoning p {
+  max-height: 220px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  overflow-y: auto;
+  color: var(--text-3);
+  font-size: 12.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
 .thoughts {
   display: flex;
   flex-direction: column;
@@ -1109,6 +1142,13 @@ kbd {
 
 .checkout li .cell-sub {
   animation: rise 0.6s var(--ease) both;
+}
+
+/* The step where Hunter stopped without paying: a failed check, or no wallet key on the server. */
+.step-mark .stage-icon.stopped {
+  border-color: var(--amber);
+  background: var(--amber);
+  animation: pop 0.45s var(--ease) both;
 }
 
 .finish {
