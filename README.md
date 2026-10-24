@@ -106,7 +106,39 @@ Errors: `400` missing `shipTo` (no money moves), `402` no or rejected payment, `
 | `STORE_PAY_TO` | Store wallet address where payments land |
 | `BUYER_PRIVATE_KEY` | Agent wallet key that signs payments. Fund with free test USDC from https://faucet.circle.com |
 
+| `MONGODB_URI` | MongoDB Atlas connection string, read from `.env.local` / `.env` at the repo root |
+| `MONGODB_DB_REDTEAM` | Database for listings, answer keys and Gate references (default `redteam`) |
+
 Secrets go in `.env` files (gitignored). Commit only `.env.example`.
+
+## Shared contracts (red team + Gate)
+
+`contracts/` holds the schemas from issue #1 as the `calhacks-contracts` uv package (pydantic models, a TypeScript mirror in
+`contracts/ts/`, generated JSON Schemas in `contracts/schemas/`) plus the MongoDB access layer. Details:
+`contracts/interfaces.md`; plan: `docs/plans/redteam-gate.md`.
+
+- **One `Listing` shape** for real listings, synthetic listings and the Gate's input. A synthetic listing's answer key
+  (label, family, attack diff) and generator info are stored in separate collections the Gate never reads.
+- **All data lives in MongoDB** (`redteam` database): listings, cases (mandates), answer keys, and the references the Gate
+  looks up itself: known sellers, CRS results, market medians, wallet first-seen dates.
+- **Getting real data in:**
+
+  ```sh
+  cd contracts
+  uv run contracts-ingest listings FILE.jsonl --source apify:ebay   # Listing per line
+  uv run contracts-ingest known-sellers FILE.json
+  uv run contracts-ingest medians FILE.json --source apify:ebay-sold
+  uv run contracts-ingest crs FILE.json                             # CRS stand-in
+  uv run contracts-ingest stats
+  uv run pytest                                                     # tests use mongomock, not Atlas
+  ```
+
+- **Attack families** (`contracts/families.json`): Layer 1 catches payment mismatch, lookalike wallet, bait-and-switch,
+  product switch and unverified seller by rule. Layer 2 handles too-cheap, prompt injection, hidden text and fake reviews.
+  `urgency_pressure` and `lookalike_domain` are held out of training entirely, for the final exam.
+- **Unknown sellers:** paid only if CRS-verified, and only up to `unknown_seller_cap_usd` ($100) in `contracts/allowlist.json`. $100 covers about 92% of the scraped listings.
+
+On this network uv may need `UV_SYSTEM_CERTS=1` (TLS interception).
 
 ## Prize tracks
 
@@ -120,6 +152,8 @@ apps/
   store-a/   Next.js 16 storefront, port 3001
   store-b/   Next.js 16 storefront
   store-c/   Next.js 16 storefront
+contracts/   Shared schemas (issue #1), MongoDB access and ingestion CLI (uv package calhacks-contracts)
+docs/plans/  Red-team loop + Gate implementation plan
 package.json npm workspaces for the stores + root dev scripts
 ```
 
@@ -141,6 +175,8 @@ npm run lint         # lint all stores
 Keep this section current (see `AGENTS.md`).
 
 - [x] Monorepo scaffold: FastAPI agent with `/health`, three default Next.js store apps
+- [x] Shared schemas from issue #1 (`Listing`, `SyntheticListing`, `AttackSpec`, `RoundInput`, `RoundReport`, `GateRequest`, `GateDecision`) as pydantic + TypeScript, with MongoDB repository and ingestion CLI
+- [ ] Real listings, known sellers and market medians ingested into MongoDB
 - [ ] Storefront API (`store.json`, catalog, items, x402 checkout) in each store
 - [ ] Scam storefront variants (lookalike domain/wallet, too cheap, prompt injection, fake reviews, unverified seller)
 - [ ] Apify listing ingestion
