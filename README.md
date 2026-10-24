@@ -147,7 +147,8 @@ Two layers decide whether the wallet may pay; both must say yes. Details: `gate/
 - **Layer 1** (`gate/layer1`, TypeScript, fixed rules that are never learned): checkout wallet matches `store.json`; wallet is
   a known seller's **or** the seller is CRS-verified (CRS-only sellers capped at `unknown_seller_cap_usd`); 402 amount equals
   the price; price within max price and spend remaining; network and asset allowlisted; checkout item and product match the
-  listing and the mandate; 402 timeout at most 120s. `node gate/layer1/src/cli.ts < gate_inputs.jsonl`.
+  listing and the mandate; 402 timeout at most 120s. `node gate/layer1/src/cli.ts < gate_inputs.jsonl`. It is an npm
+  workspace: `npm run test:gate-l1`; root `npm run build` / `npm run lint` typecheck it.
 - **Layer 2** (`gate/gatepy` + `gate/features`, Python): a LightGBM risk score that runs only when Layer 1 passes and can
   only turn a buy into a skip. Features from issue #1: price vs median, CRS verification and age, known wallet and wallet age,
   domain and wallet lookalikes, injection and hidden-text scores, review similarity. Each decision carries its top 3 reasons.
