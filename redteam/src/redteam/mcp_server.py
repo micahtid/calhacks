@@ -86,6 +86,11 @@ def generate_attacks(family: str, n: int, legit_ratio: float = 0.4, target_weakn
     left = budget["limit"] - budget["gen_tokens"]
     if left <= 0:
         return _log("generate_attacks", args, {"error": f"round {r} generation budget exhausted"})
+    cap = int(os.environ.get("REDTEAM_MAX_LISTINGS", "100000"))
+    have = sum(1 for _ in iter_rows(round_files([r])))
+    if isinstance(n, int) and have + n > cap:
+        return _log("generate_attacks", args, {"error": f"round {r} listing cap {cap} reached ({have} generated); "
+                                                        f"request at most {max(0, cap - have)}"})
     spec = {"round": r, "family": family, "n": n, "legit_ratio": legit_ratio, "target_weakness": target_weakness,
             "base_items": base_items, "constraints": {}}
     try:
