@@ -136,7 +136,7 @@ Secrets go in `.env` files (gitignored). Commit only `.env.example`.
 - **Attack families** (`contracts/families.json`): Layer 1 catches payment mismatch, lookalike wallet, bait-and-switch,
   product switch and unverified seller by rule. Layer 2 handles too-cheap, prompt injection, hidden text and fake reviews.
   `urgency_pressure` and `lookalike_domain` are held out of training entirely, for the final exam.
-- **Unknown sellers:** paid only if CRS-verified, and only up to `unknown_seller_cap_usd` in `contracts/allowlist.json`.
+- **Unknown sellers:** paid only if CRS-verified, and only up to `unknown_seller_cap_usd` ($100) in `contracts/allowlist.json`. $100 covers about 92% of the scraped listings.
 
 On this network uv may need `UV_SYSTEM_CERTS=1` (TLS interception).
 
