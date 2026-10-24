@@ -181,89 +181,46 @@ What the logged sessions show:
 
 ---
 
-## Part 2: Shared step (before the worktrees), about 45 min
+## Revision 2 (Oct 24): issue #1 contracts and MongoDB
 
-Branch `feat/contracts` from `main`. Files:
+This revision supersedes Part 2 and every place below that mentions the `Snapshot` format, Pixel Cart reference data or
+`data/rounds/` files. Parts 1, 3, 4 and 5 still describe the structure of the work; where they disagree with this
+section, this section wins.
 
-```
-contracts/
-  snapshot.schema.json      JSON Schema of one Snapshot (below)
-  families.json             attack families + legit types, with layer and mutation
-  known_sellers.json        [{sellerId, name, payTo, domain}]
-  allowlist.json            {networks:["eip155:84532"], assets:{"eip155:84532":"0x036CbD53842c5426634e7929541eC2318f3dCF7e"}, max_timeout_s:120}
-  market_medians.json       {source, built_at, medians:{itemId: usd}}   (catalog fallback first)
-  injection_patterns.json   seed regexes shared by Layer 2 + generator checks
-  examples/*.json           8 hand-written Snapshots
-  interfaces.md             CLI contracts, model JSON, decision JSON, metric definitions
-.gitignore                  + data/, .env, gate/.factory/hooks.json
-```
+**What changed and why**
 
-**Snapshot** (mirrors the live Pixel Cart API, so live and generated data have the same shape):
+| Before | Now | Why |
+|---|---|---|
+| One `Snapshot` record carrying label, family and generator info | Issue #1 `Listing` (minimal, shared by real and synthetic) + `AnswerKey` + `GenInfo`, stored apart | The Gate can't tell real from synthetic by format, and labels can't leak into features |
+| Store stats in the listing (rating, sellingSince, review dates) | Dropped. Trust comes from references the Gate looks up: known sellers, CRS, market median, wallet first-seen | The attacker writes everything in a listing; only references are unforgeable |
+| Unknown sellers go to Layer 2 | Layer 1: pay only known wallets **or** CRS-verified sellers, and CRS-only sellers only up to `unknown_seller_cap_usd` | Issue #1 task 1 recommendation |
+| Reference data and listings in JSON files built around Pixel Cart | All data in MongoDB (`redteam` database); real listings enter only through `contracts-ingest` | User decision: MongoDB is the data source |
+| Generator writes listings from templates | `AttackSpec.mode = mutate_real` (change one thing in a real listing, recorded in `attack_diff`) is the main mode; `generate` is secondary | Real listings as the base stop the Gate learning generator style |
+| `spoofed_store_name` held out | `lookalike_domain` held out (the Listing has no store name; the same trick lives in `seller.domain`) | Keeps the user's choice of holdout under the new shape |
+| Coordinator writes the round report | Coordinator writes `CoordinatorOutput`; code fills metrics, promotion decision and cost into `RoundReport` | The LLM can't invent the headline numbers |
+| Holdout totals hidden from the coordinator | `RoundInput.holdout_totals` gives it totals for the current model only, per issue #1 | Issue #1; promotion still uses validation only |
+| New metrics | `fpr_real` (false blocks on real listings), `adaptive_recall` (white-box attacks), Wilson intervals on every rate | Issue #1 |
 
-```jsonc
-{
-  "id": "R1-b07-0013",
-  "family": "lookalike_payto",            // or "legit_*"
-  "label": "scam",                        // "scam" | "legit"; set by code, never by the LLM
-  "gen": {"model": "zai-org/GLM-5.3-Flash", "temperature": 0.9, "batch_id": "b07", "round": 1},
-  "mandate": {"query": "Tetris Game Boy", "max_price_usd": 5, "budget_remaining_usd": 20},
-  "store": {"name": "...", "sellerId": "...", "payTo": "0x...", "network": "eip155:84532",
-            "currency": "USDC", "sellingSince": 2019, "rating": 4.3, "reviewCount": 16, "domain": "..."},
-  "item": {"id": "tetris-gb", "title": "...", "platform": "Game Boy", "condition": "Fair",
-           "priceUsd": 2.5, "description": "...", "inStock": true},
-  "reviews": [{"author": "...", "rating": 5, "date": "2026-07-30", "verifiedPurchase": true, "body": "..."}],
-  "payment_required": {"scheme": "exact", "network": "eip155:84532", "amount": "2500000",
-                       "asset": "0x036C...", "payTo": "0x...", "maxTimeoutSeconds": 120},
-  "checkout_item_id": "tetris-gb",        // differs from item.id in bait_and_switch
-  "tactic_evidence": null                 // quoted scam text for text tactics
-}
-```
-
-**Families** (`families.json`). The layer column is where we *expect* the catch:
-
-| Family | Label | Applied by | Expected layer |
-|---|---|---|---|
-| `payment_mismatch`: 402 payTo/amount ≠ store.json/listing | scam | code | L1 |
-| `lookalike_payto`: same first/last 4 hex as a known wallet | scam | code | L1 |
-| `bait_and_switch`: checkout ID ≠ listing ID | scam | code | L1 |
-| `too_cheap`: 15–45% of median | scam | code (+LLM text) | L2 |
-| `unverified_new_seller`: sellingSince = this year, few reviews, scammy signals | scam | code (+LLM) | L2 |
-| `fake_reviews`: near-duplicate, burst-dated, unverified | scam | LLM + code dates | L2 |
-| `prompt_injection`: in the description or a review | scam | LLM (evidence-checked) | L2 |
-| `spoofed_store_name`: "Pixel Kart Retro", new sellerId | scam | code + LLM | L2 |
-| `urgency_pressure`: "only 1 left, pay in 60s" | scam | LLM (evidence-checked) | L2 |
-| `legit_plain`, `legit_real_discount` (60–85% of median, explained), `legit_new_honest_seller`, `legit_mixed_reviews` | legit | code + LLM | — |
-
-**Holdout families (confirmed):** `urgency_pressure` and `spoofed_store_name` are never generated for training. All
-families also get a holdout slice written by `nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B`, which is never used for training.
-
-**`interfaces.md` contracts:**
+**Data flow**
 
 ```
-gate-l1  < snapshots.jsonl  > results.jsonl         (node, gate/layer1)
-  {"id", "pass": bool, "failures": ["L1_PAYTO_MISMATCH", ...]}
-
-gate-train --data <jsonl>... --config gate/train_config.yaml --round N --out gate/models/
-  stdout: {"model_id", "round", "features": [...], "n_train", "threshold", "val": <metrics>}
-  exit 2 + {"error"} if the feature self-test fails
-
-gate-eval --model <model_id> --data <jsonl>... [--rows]
-  stdout: <metrics> = {"n", "recall", "fpr", "recall_l2", "fpr_l2", "l1_catches",
-                       "per_family": {fam: {"n", "recall"|"fpr"}},
-                       "rows"?: [{"id","family","label","decision","layer","risk","top3":[[feat,val,contrib]]}]}
-
-Decision (serve.score / POST /gate/risk):
-  {"decision": "buy"|"skip", "layer": "L1"|"L2"|null, "l1_failures": [], "risk": 0.07,
-   "threshold": 0.42, "model_id": "r2-…", "top3": [[feature, value, contribution], ...]}
-
-Model file gate/models/<model_id>.json:
-  {"model_id","round","kind":"lightgbm"|"logreg","features":[...],"monotone":[...],
-   "threshold","booster"|"coef","train_data_hash","feature_code_hash","created_at","val_metrics"}
-gate/models/promoted.json -> {"model_id", "history": [...]}
+contracts-ingest (real listings, known sellers, CRS stand-in, medians) --> MongoDB redteam.*
+coordinator --AttackSpec--> generate_attacks --mutate_real / generate--> Repo.put_synthetic --> MongoDB
+gate-train / gate-eval read listings + cases + references from MongoDB, answer keys only for scoring
+holdout: built once from MongoDB real listings + held-out families, encrypted outside the repo, scored in memory
 ```
 
-Exit check for the shared step: all 8 examples validate against the schema in Python (`jsonschema`) and in TS (types compile).
-Then create both worktrees from `feat/contracts`.
+**Open items carried by this revision**
+- MongoDB is empty. Nothing can be trained on real data until real listings, known sellers and medians are ingested.
+- `lookalike_domain` is held out, but issue #1 lists "domain closeness to known stores" as an essential Layer 2 feature.
+  Keeping both means the holdout tests a feature we designed for that trick, which weakens the "never seen" claim.
+- CRS has no API yet: `crs_results` is a stand-in collection (`source: "stub"`).
+- Domain age (issue #1 Layer 2) has no data source yet and is left out.
+
+## Part 2: Shared contracts
+
+See `contracts/interfaces.md` (rewritten for issue #1). The original Snapshot-based Part 2 is in git history
+(`docs: add red-team loop and gate implementation plan`).
 
 ---
 
