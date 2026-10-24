@@ -7,6 +7,7 @@ import json
 import sys
 
 from redteam.config import DATA, ROUNDS
+from redteam.coordinator import _guard_denials
 from redteam.promotion import current
 
 
@@ -37,7 +38,7 @@ def rows() -> list[dict]:
             "gen_tokens": budget and budget["gen_tokens"],
             "coord_tokens": usage and usage["usage"] and sum(v or 0 for k, v in usage["usage"].items()
                                                             if k in ("input_tokens", "output_tokens")),
-            "hook_denials": usage and usage["hook_denials"],
+            "hook_denials": usage and len(_guard_denials(usage["session_id"])),
         })
     return out
 

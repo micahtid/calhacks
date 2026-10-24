@@ -188,6 +188,15 @@ Procedure:
 """
 
 
+def _guard_denials(session_id: str) -> list[dict]:
+    """Denials the guard hook logged for this session (SDK hook events don't reliably carry the exit code)."""
+    log = DATA / "guard.log"
+    if not log.exists():
+        return []
+    rows = [json.loads(l) for l in log.read_text(encoding="utf-8").splitlines() if l.strip()]
+    return [{"tool": r["tool"], "why": r["why"]} for r in rows if r["decision"] == "deny" and r.get("session") == session_id]
+
+
 async def run_round(round_: int, *, model: str, offline_gen: bool, max_listings: int, resume: str | None,
                     timeout: float) -> dict:
     allow_edits = gate_client.GATE_BACKEND != "stub"
@@ -222,7 +231,7 @@ async def run_round(round_: int, *, model: str, offline_gen: bool, max_listings:
                "seconds": round(time.time() - started), "turns": result.turn_count, "usage": usage,
                "generation_budget": json.loads(budget.read_text()) if budget.exists() else None,
                "tool_calls": len([e for e in events if "tool" in e]),
-               "hook_denials": len([e for e in events if "hook_denied" in e]), "permission_log": perm_log}
+               "hook_denials": _guard_denials(result.session_id), "permission_log": perm_log}
     (out_dir / "usage.json").write_text(json.dumps(summary, indent=1, default=str))
     (out_dir / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
     report = result.output.model_dump() if result.output else {"error": "no structured report",
