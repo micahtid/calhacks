@@ -15,6 +15,7 @@ from calhacks_contracts import GateDecision, GateInput, RoundMetrics, rate
 from calhacks_contracts.db import ReferenceSet, Repo, get_db
 from calhacks_contracts.families import REAL_FAMILY
 
+from gatepy import MODELS
 from gatepy.dataset import Example, GateInputError, featurize, from_items, load_examples, to_inputs
 from gatepy.layer1_bridge import failed_rule, passed, run_layer1
 from gatepy.model_io import Model, load
@@ -86,6 +87,20 @@ def get_repo() -> Repo:
     return Repo(get_db())
 
 
+def evaluate_repo(model_id: str, repo: Repo, split: str = "all", ids: list[str] | None = None,
+                  query: dict | None = None, with_rows: bool = False, models_dir: Path = MODELS) -> dict:
+    """gate-eval as a function: score MongoDB listings (optionally restricted to `ids` and a split) with a model."""
+    discover()
+    model = load(model_id, models_dir)
+    query = dict(query or {})
+    if ids is not None:
+        query["_id"] = {"$in": list(ids)}
+    examples = load_examples(repo, query)
+    if split != "all":
+        examples = [e for e in examples if split_of(e.id) == split]
+    return evaluate_examples(model, examples, repo.reference_snapshot(), with_rows=with_rows)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="gate-eval", description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--model", default="promoted")
@@ -95,16 +110,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--rows", action="store_true")
     a = ap.parse_args(argv)
     try:
-        discover()
-        model = load(a.model)
         query = json.loads(a.query) if a.query else {}
-        if a.ids:
-            query["_id"] = {"$in": [x.strip() for x in a.ids.read_text(encoding="utf-8").splitlines() if x.strip()]}
-        repo = get_repo()
-        examples = load_examples(repo, query)
-        if a.split != "all":
-            examples = [e for e in examples if split_of(e.id) == a.split]
-        result = evaluate_examples(model, examples, repo.reference_snapshot(), with_rows=a.rows)
+        ids = [x.strip() for x in a.ids.read_text(encoding="utf-8").splitlines() if x.strip()] if a.ids else None
+        result = evaluate_repo(a.model, get_repo(), a.split, ids, query, a.rows)
     except (GateInputError, FeaturePolicyError, FileNotFoundError, KeyError, json.JSONDecodeError) as e:
         print(json.dumps({"error": str(e)}))
         return 2
