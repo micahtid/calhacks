@@ -58,7 +58,8 @@ def build_messages(slots: list[Slot], target_weakness: str | None = None) -> lis
                                                                                      "bait_and_switch",
                                                                                      "spoofed_store_name"):
             instr += f" Emphasis for this slot: {target_weakness}"
-        lines.append(f'- slot_id "{s.slot_id}": used {meta["title"]} ({meta["platform"]}) cartridge. {instr}')
+        what = f'{meta["title"]} ({meta["platform"]})' if meta["platform"] else meta["title"]
+        lines.append(f'- slot_id "{s.slot_id}": a used {what}. {instr}')
     user = (
         f"Write {len(slots)} listings, one per slot:\n" + "\n".join(lines) +
         "\n\nFor every slot return store_name (an invented small shop name), description (1-4 sentences), "

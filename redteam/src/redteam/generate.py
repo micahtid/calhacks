@@ -57,7 +57,7 @@ def plan_slots(spec: dict, batch_id: str, seed: int, allow_holdout: bool = False
     if spec["family"] == "mixed" and allow_holdout:
         scam_pool = [f for f in scam_pool if f in holdout_families()] or scam_pool
     legit_pool = legit_families()
-    items = spec.get("base_items") or [k for k in medians() if k != "star-fox-snes"]
+    items = spec.get("base_items") or sorted(medians())
     fams = [scam_pool[i % len(scam_pool)] for i in range(n - n_legit)] + [legit_pool[i % len(legit_pool)]
                                                                           for i in range(n_legit)]
     rng.shuffle(fams)

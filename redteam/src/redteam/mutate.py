@@ -30,7 +30,9 @@ def medians() -> dict[str, float]:
 
 
 def item_meta(item_id: str) -> dict:
-    return contract("market_medians.json")["items"][item_id]
+    """Title and platform for an item; contracts/market_medians.json is the only item catalog."""
+    meta = contract("market_medians.json").get("items", {}).get(item_id, {})
+    return {"title": meta.get("title") or item_id, "platform": meta.get("platform") or ""}
 
 
 def known_sellers() -> list[dict]:
@@ -95,7 +97,7 @@ def store_for(family: str, text: dict, rng: random.Random) -> dict:
     if family == "legit_plain" and rng.random() < 0.25:
         # A quarter of plain legit listings come from a known seller, so "known wallet" isn't a scam-only signal.
         name, seller_id, pay_to, domain = known["name"], known["sellerId"], known["payTo"], known["domain"]
-        since, rating, count = 2019, 4.3, rng.randint(12, 60)
+        since, rating, count = rng.randint(2012, THIS_YEAR - 1), round(rng.uniform(4.0, 4.9), 1), rng.randint(12, 400)
         return dict(name=name, sellerId=seller_id, payTo=pay_to, network="eip155:84532", currency="USDC",
                     sellingSince=since, rating=rating, reviewCount=count, domain=domain)
     if family in ("legit_new_honest_seller", "unverified_new_seller"):
@@ -161,7 +163,7 @@ def build_snapshot(slot: Slot, text: dict, gen: dict | None, snapshot_id: str) -
         "family": family,
         "label": "legit" if family.startswith("legit_") else "scam",
         "gen": gen,
-        "mandate": {"query": f"{meta['title']} {meta['platform']}", "max_price_usd": max_price,
+        "mandate": {"query": f"{meta['title']} {meta['platform']}".strip(), "max_price_usd": max_price,
                     "budget_remaining_usd": money(max_price * rng.uniform(1.5, 6))},
         "store": store,
         "item": {"id": slot.item_id, "title": meta["title"], "platform": meta["platform"],

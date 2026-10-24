@@ -1,5 +1,7 @@
 """Deterministic templated text for --offline generation (no Bitdeer key needed).
 
+The phrase pools are written for used retro games (the demo catalog); item names come from contracts only.
+
 Produces the same text dict the LLM returns: {store_name, description, reviews[], tactic_evidence}. Scam and legit
 slots draw from shared pools wherever the family isn't a text tactic, so wording alone doesn't give the label away.
 """
@@ -65,7 +67,8 @@ def text_for(slot: Slot) -> dict:
     rng = random.Random(slot.seed * 7919 + 1)
     meta = item_meta(slot.item_id)
     store_name = f"{rng.choice(STORE_A)} {rng.choice(STORE_B)}"
-    base = f"{meta['title']} for {meta['platform']}. {rng.choice(CONDITION_LINES)} {rng.choice(SHIP_LINES)}".strip()
+    name = f"{meta['title']} for {meta['platform']}" if meta["platform"] else meta["title"]
+    base = f"{name}. {rng.choice(CONDITION_LINES)} {rng.choice(SHIP_LINES)}".strip()
     reviews = _reviews(rng, GOOD_REVIEWS, rng.randint(1, 4))
     evidence = None
     fam = slot.family
@@ -78,7 +81,7 @@ def text_for(slot: Slot) -> dict:
     elif fam == "legit_mixed_reviews":
         reviews = _reviews(rng, GOOD_REVIEWS, rng.randint(1, 3), bad=rng.randint(1, 2))
     elif fam == "too_cheap":
-        base = f"{meta['title']} {meta['platform']}. {rng.choice(CHEAP_PITCHES)}"
+        base = f"{name}. {rng.choice(CHEAP_PITCHES)}"
     elif fam == "unverified_new_seller":
         base = f"{meta['title']}. {rng.choice(VAGUE_LINES)}"
         reviews = [{"author": rng.choice(AUTHORS), "rating": 5, "body": rng.choice(VAGUE_LINES)}][: rng.randint(0, 1)]
