@@ -177,7 +177,7 @@ listings live in MongoDB through `calhacks-contracts`; nothing is read from loca
   `generate_attacks`, `score_round`, `inspect_failures`, `train_gate`, `eval_gate`, `promote_model`). A guard hook
   limits edits to `gate/features/<name>.py` and `gate/train_config.yaml`, and Gate subprocesses never receive the holdout key. Promotion (validation recall up, false blocks ≤ 2%, no
   family down more than 5 points) and the `RoundReport` numbers are computed in code.
-- **Gate backend:** a stub with the same interface stands in until the Gate branch is merged (`REDTEAM_GATE=real` after).
+- **Gate backend:** the real Gate in `gate/` (path dependency). `REDTEAM_GATE=stub` selects a fast stand-in used by unit tests.
 
   ```sh
   uv run --project redteam python -m redteam.generate --round 1 --family too_cheap --n 40 --legit-ratio 0.4
@@ -233,5 +233,5 @@ Keep this section current (see `AGENTS.md`).
 - [x] Bitdeer attack generation from real MongoDB listings (`mutate_real` / `generate`), labels and attack diffs set by code
 - [ ] Labeled dataset generated from real listings (blocked on real listings in MongoDB)
 - [x] Scoring harness: issue #1 RoundMetrics (Wilson intervals, `fpr_real`, `adaptive_recall`), encrypted holdout scored to totals only, rounds table from MongoDB
-- [x] Factory coordinator loop: per-round Droid SDK session, MCP tools, guard hook, strategist droid, code-enforced promotion (runs against a stub Gate until the Gate branch is merged)
+- [x] Factory coordinator loop: per-round Droid SDK session, MCP tools, guard hook, strategist droid, code-enforced promotion, connected to the real Gate (train, evaluate, promote with holdout totals, restore on revert)
 - [ ] Demo UI (rules input, payment view)

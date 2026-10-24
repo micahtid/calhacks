@@ -5,12 +5,11 @@ Promote only if, on the current validation set, compared with the incumbent:
   - full-Gate false-block rate stays <= MAX_FPR,
   - no scam family's recall drops by more than MAX_FAMILY_DROP.
 With no incumbent, only the false-block bound applies. On promotion the holdout totals are recorded in
-gate/models/promoted.json (same shape gatepy.model_io.set_promoted writes). On refusal the promoted model's feature
+gate/models/promoted.json through the Gate's own set_promoted. On refusal the promoted model's feature
 code is restored, since the coordinator edits gate/features/ in place.
 """
 import json
 from collections.abc import Callable
-from datetime import datetime, timezone
 
 from calhacks_contracts import HoldoutTotals, PromotionDecision
 from calhacks_contracts.families import families
@@ -67,12 +66,7 @@ def promote(model_id: str, holdout_totals: Callable[[str], HoldoutTotals | None]
               "decision": decision.model_dump()}
     if ok:
         holdout = holdout_totals(model_id) if holdout_totals else None
-        entry = {"model_id": model_id, "round": _round_of(model_id),
-                 "promoted_at": datetime.now(timezone.utc).isoformat(), "val": cand["metrics"],
-                 "holdout": holdout.model_dump(mode="json") if holdout else None}
-        state = {"model_id": model_id, "history": state["history"] + [entry]}
-        MODELS_DIR.mkdir(parents=True, exist_ok=True)
-        promoted_file().write_text(json.dumps(state, indent=1))
+        gate_client.set_promoted(model_id, cand["metrics"], holdout.model_dump(mode="json") if holdout else None)
         result["holdout_recorded"] = holdout is not None
     elif state["model_id"]:
         gate_client.restore_features(state["model_id"])
@@ -87,9 +81,3 @@ def holdout_for_current() -> dict | None:
             return h.get("holdout")
     return None
 
-
-def _round_of(model_id: str) -> int | None:
-    try:
-        return json.loads((MODELS_DIR / f"{model_id}.json").read_text()).get("round")
-    except (FileNotFoundError, json.JSONDecodeError):
-        return None
