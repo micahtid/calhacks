@@ -1,4 +1,4 @@
-import { listingFor, type BaseReview, type Game } from "@calhacks/common";
+import { findOrThrow, listingFor, type BaseReview, type Game } from "@calhacks/common";
 
 export type Seller = {
   handle: string;
@@ -63,9 +63,7 @@ export const PLATFORMS = [
 ];
 
 export function byId(id: string): Item {
-  const item = ITEMS.find((entry) => entry.id === id);
-  if (!item) throw new Error(`Unknown item: ${id}`);
-  return item;
+  return findOrThrow(ITEMS, (item) => item.id === id, `item: ${id}`);
 }
 
 export function getItem(slug: string): Item | undefined {
@@ -73,9 +71,7 @@ export function getItem(slug: string): Item | undefined {
 }
 
 export function sellerOf(item: Item): Seller {
-  const seller = SELLERS.find((entry) => entry.handle === item.sellerHandle);
-  if (!seller) throw new Error(`Unknown seller: ${item.sellerHandle}`);
-  return seller;
+  return findOrThrow(SELLERS, (seller) => seller.handle === item.sellerHandle, `seller: ${item.sellerHandle}`);
 }
 
 export function itemPath(item: Item): string {

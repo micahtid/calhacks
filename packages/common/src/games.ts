@@ -8,6 +8,7 @@ import starFox from "../covers/star-fox-snes.jpg";
 import superMarioWorld from "../covers/super-mario-world-snes.png";
 import tetris from "../covers/tetris-gb.jpg";
 import zeldaLinksAwakening from "../covers/zelda-links-awakening-gb.png";
+import { findOrThrow } from "./lookup";
 
 // These are the facts every store agrees on. Each store adds its own price, condition, and copy.
 export type Game = {
@@ -35,9 +36,7 @@ export const GAMES: Game[] = [
 ];
 
 export function game(id: string): Game {
-  const found = GAMES.find((entry) => entry.id === id);
-  if (!found) throw new Error(`Unknown game: ${id}`);
-  return found;
+  return findOrThrow(GAMES, (entry) => entry.id === id, `game: ${id}`);
 }
 
 // A store listing starts from the shared game facts and adds its own fields on top.

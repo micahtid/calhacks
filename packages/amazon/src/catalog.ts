@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { findOrThrow } from "@calhacks/common";
 import type { Item, Store } from "./types";
 
 export function getItem(store: Store, id: string): Item | undefined {
@@ -6,9 +7,7 @@ export function getItem(store: Store, id: string): Item | undefined {
 }
 
 export function byId(store: Store, id: string): Item {
-  const item = getItem(store, id);
-  if (!item) throw new Error(`Unknown item: ${id}`);
-  return item;
+  return findOrThrow(store.items, (item) => item.id === id, `item: ${id}`);
 }
 
 export function byIds(store: Store, ids: string[]): Item[] {

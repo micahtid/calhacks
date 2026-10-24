@@ -1,4 +1,4 @@
-import { listingFor, type BaseReview, type Game } from "@calhacks/common";
+import { findOrThrow, listingFor, type BaseReview, type Game } from "@calhacks/common";
 
 export type Feedback = BaseReview & {
   authorScore: number;
@@ -198,9 +198,7 @@ export const ITEMS: Item[] = [
 ];
 
 export function byId(id: string): Item {
-  const item = ITEMS.find((entry) => entry.id === id);
-  if (!item) throw new Error(`Unknown item: ${id}`);
-  return item;
+  return findOrThrow(ITEMS, (item) => item.id === id, `item: ${id}`);
 }
 
 export function getItem(itemNumber: string): Item | undefined {

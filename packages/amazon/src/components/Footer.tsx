@@ -1,6 +1,6 @@
-import { demoNotice } from "@calhacks/common";
+import { FooterColumns, demoNotice, type FooterColumn } from "@calhacks/common";
 
-const COLUMNS = [
+const COLUMNS: FooterColumn[] = [
   { title: "Get to Know Us", links: ["Careers", "Blog", "About Amazon", "Investor Relations", "Amazon Devices", "Amazon Science"] },
   { title: "Make Money with Us", links: ["Sell Products on Amazon", "Sell on Amazon Business", "Sell Apps on Amazon", "Become an Affiliate", "Advertise Your Products", "Self-Publish with Us"] },
   { title: "Amazon Payment Products", links: ["Amazon Business Card", "Shop with Points", "Reload Your Balance", "Amazon Currency Converter"] },
@@ -14,16 +14,7 @@ export default function Footer({ company }: { company: string }) {
         Back to Top
       </a>
       <div className="footer-links">
-        {COLUMNS.map((column) => (
-          <div key={column.title}>
-            <h3>{column.title}</h3>
-            <ul>
-              {column.links.map((link) => (
-                <li key={link}>{link}</li>
-              ))}
-            </ul>
-          </div>
-        ))}
+        <FooterColumns columns={COLUMNS} />
       </div>
       <div className="footer-bottom">
         <p>Conditions of Use &nbsp; Privacy Notice &nbsp; Consumer Health Data Privacy Disclosure &nbsp; Your Ads Privacy Choices</p>

@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { Heart } from "@calhacks/common";
-import { Bag, Camera, Search } from "./Icons";
+import { Camera, Heart } from "@calhacks/common";
+import { Bag, Search } from "./Icons";
 
 const NAV = ["Women", "Men", "Kids", "Brands", "Sports", "Trending"];
 
@@ -17,7 +17,7 @@ export default function Header() {
         <form className="search" action="/" role="search">
           <Search />
           <input type="text" name="q" aria-label="Search" placeholder="Search for Anything" />
-          <Camera />
+          <Camera width={18} height={16} />
         </form>
         <div className="bar-actions">
           <span className="icon-btn" aria-label="Saved">

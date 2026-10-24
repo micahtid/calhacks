@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { Chevron } from "@calhacks/common";
+import { Camera, Chevron } from "@calhacks/common";
 import Logo from "./Logo";
-import { Bell, Camera, Cart, Search } from "./Icons";
+import { Bell, Cart, Search } from "./Icons";
 
 const CATEGORIES = ["Saved", "Motors", "Electronics", "Collectibles", "Home and Garden", "Clothing, Shoes and Accessories", "Toys", "Sporting Goods", "Business and Industrial", "Jewelry and Watches", "Refurbished"];
 

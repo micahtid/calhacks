@@ -9,15 +9,6 @@ export function Search() {
   );
 }
 
-export function Camera() {
-  return (
-    <svg width="18" height="16" viewBox="0 0 24 20" aria-hidden>
-      <path d="M2 6.5A1.5 1.5 0 0 1 3.5 5h3.2L8.5 2.5h7L17.3 5h3.2A1.5 1.5 0 0 1 22 6.5v10a1.5 1.5 0 0 1-1.5 1.5h-17A1.5 1.5 0 0 1 2 16.5Z" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <circle cx="12" cy="11.3" r="3.8" fill="none" stroke="currentColor" strokeWidth="1.8" />
-    </svg>
-  );
-}
-
 export function Bag() {
   return (
     <svg width="22" height="24" viewBox="0 0 22 24" aria-hidden>

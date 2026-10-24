@@ -1,6 +1,6 @@
-import { demoNotice } from "@calhacks/common";
+import { FooterColumns, demoNotice, type FooterColumn } from "@calhacks/common";
 
-const COLUMNS = [
+const COLUMNS: FooterColumn[] = [
   { title: "Depop", links: ["About Us", "Careers", "Blog", "News", "Impact"] },
   { title: "Sell", links: ["Sell on Depop", "Depop Shipping", "Depop Affiliates", "Become a Depop Insider"] },
   { title: "Help", links: ["Help Center", "Safety Center", "Depop Status"] },
@@ -10,16 +10,7 @@ export default function Footer() {
   return (
     <footer className="footer">
       <div className="footer-cols">
-        {COLUMNS.map((column) => (
-          <div key={column.title}>
-            <h3>{column.title}</h3>
-            <ul>
-              {column.links.map((link) => (
-                <li key={link}>{link}</li>
-              ))}
-            </ul>
-          </div>
-        ))}
+        <FooterColumns columns={COLUMNS} />
         <div>
           <h3>Download the Depop App</h3>
           <p>List faster, track your orders, and never miss a beat. On iOS and Android.</p>
