@@ -5,6 +5,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./document": "./src/Document.tsx",
+    "./db": "./src/db.ts",
     "./base.css": "./src/base.css",
     "./next-config": "./next-config.mjs",
     "./eslint-config": "./eslint-config.mjs"
@@ -12,5 +13,9 @@
   "peerDependencies": {
     "next": "*",
     "react": "*"
+  },
+  "dependencies": {
+    "mongodb": "^7.7.0",
+    "server-only": "^0.0.1"
   }
 }
