@@ -111,6 +111,46 @@ Errors: `400` missing `shipTo` (no money moves), `402` no or rejected payment, `
 
 Secrets go in `.env` files (gitignored). Commit only `.env.example`.
 
+## Live store search (Apify Standby)
+
+The chat's "Searching Stores" step reads our hosted storefronts live through an Apify Actor in Standby mode, and the
+agent API streams what it finds to the browser as it arrives.
+
+```
+Browser (Vercel)  <- SSE -  agent API (Railway, FastAPI)  <- NDJSON -  store-crawler Actor (Apify Standby)  ->  storefronts
+```
+
+- **Actor** (`apps/agent/api/actor`, Python): `GET /search?stores=&q=&max=&details=` streams one JSON event per line.
+  Per store it fetches `/api/catalog` and `/.well-known/store.json` in parallel, so listings go out ~250ms in while
+  `store.json` (1.5-3s, it reads the wallet per request) is still loading. Then it fetches every matching item page
+  (50 at a time, retries on network errors, 429 and 5xx).
+  - Events: `listing` (catalog fields + absolute `url`/`checkoutUrl`), `store` (`name`, `payTo`, `network`,
+    `currency`), `page` (`title`, `h1`, `text`, `images`, `hiddenText`, `jsonLd`), `error` (one store or page; the
+    search goes on), `done` (counts and `ms`).
+  - `q` matches when every word appears in the title, so `jacket` also matches "Jackets"; empty matches everything.
+  - Page extraction works on any store: it applies React's streamed-HTML swap (content arrives in `<div hidden id="S:n">`),
+    joins text nodes with spaces in document order, and collects `hiddenText` (`hidden`, `sr-only`, inline
+    `display:none` and similar). Text hidden by stylesheet rules is not detected.
+  - Standby URLs collapse `//` in query strings, so store URLs are normalized (`https:/host` and bare hosts work).
+- **Agent API** (`apps/agent/api/app`): `GET /search?q=&max=` relays the Actor's events as SSE (`event:` is the
+  event type). Searches cover `STORE_URLS`, by default mzn, by, dpp and the mzn Official Outlet scam store. If the
+  Actor can't be reached, the stream sends one `error` event and ends.
+- **Measured** (agent API -> Standby, `q=fleece jacket`, 10 per store, 3 stores): first listing 0.2-0.5s, all 30 pages
+  in about 2s. All 317 items take 3.0s at 4 GB and 18.5s at 1 GB: Apify gives CPU in proportion to memory, and
+  parsing (~10ms a page) needs it. Standby is set to 4 GB in the Apify console. The first request after 5 minutes idle
+  adds a 2.5-3.5s cold start.
+- **Deploying the Actor:** `cd apps/agent/api/actor && apify push`. Version 0.2 tags each build `latest`, which is
+  the build Standby serves.
+
+| Variable | Where | Purpose |
+|---|---|---|
+| `APIFY_ACTOR_URL` | agent API | Standby URL (`https://lauded-crevasse--store-crawler.apify.actor`), or `http://localhost:4321` for a local Actor |
+| `APIFY_TOKEN` | agent API | Apify token, sent as a Bearer header to the Standby URL |
+| `STORE_URLS` | agent API | Optional comma-separated store origins (default: the four hntr.store stores) |
+| `CORS_ORIGINS` | agent API | Comma-separated browser origins allowed to call the API (default `http://localhost:3000`) |
+
+Railway: root directory `apps/agent/api`, start command `uv run fastapi run app/main.py --port $PORT`.
+
 ## Shared contracts (red team + Gate)
 
 `contracts/` holds the schemas from issue #1 as the `calhacks-contracts` uv package (pydantic models, a TypeScript mirror in
@@ -195,6 +235,7 @@ Visa, Hyphenate, Coinbase x402 (payment protocol), Apify (real listings), Factor
 ```
 apps/
   agent/api/ Python FastAPI shopping agent backend (uv, Python 3.13), port 8000
+    actor/   store-crawler Apify Standby Actor (Python), port 4321 locally
   agent/web/ Next.js agent dashboard, port 3000
   store-a/   mzn, a general store (Next.js 16), port 3001
   store-b/   by, an auction marketplace, port 3002
@@ -217,6 +258,10 @@ npm install
 npm run dev            # agent API, agent dashboard, and all four stores via concurrently
 npm run dev:agent-api  # agent API only (http://localhost:8000, GET /health)
 npm run dev:store-a    # one store
+
+# store-crawler Actor locally (from apps/agent/api/actor), then set APIFY_ACTOR_URL=http://localhost:4321
+uv run --no-project --python 3.13 --with-requirements requirements.txt python -m src
+uv run --no-project --python 3.13 --with-requirements requirements.txt python -m src.test_extract  # self-check
 npm run build          # build every workspace
 npm run lint           # lint every workspace
 ```
@@ -232,6 +277,8 @@ Keep this section current (see `AGENTS.md`).
 - [x] Store names and logos use the real names with the vowels removed (mzn, by, dpp)
 - [x] Scam storefront (mzn Official Outlet: lookalike brand, too cheap, prompt injection, fake reviews)
 - [ ] Apify listing ingestion
+- [x] Live store search: store-crawler Apify Standby Actor streaming listings and item pages, relayed as SSE by the agent API (`GET /search`)
+- [ ] Demo UI wired to `GET /search` (the chat still plays the scripted demo)
 - [ ] Scout (Claude) agent loop
 - [x] Gate Layer 1: fixed TypeScript rules over the issue #1 `GateInput`
 - [x] Gate Layer 2: LightGBM risk model trained and evaluated on MongoDB data, `POST /gate/risk`
