@@ -376,6 +376,13 @@ Two layers decide whether the wallet may pay; both must say yes. Details: `gate/
   unknown-seller scams are reported apart as `policy_bounded_recall`. `uv run --project gate gate-train --round N`, `uv run --project gate gate-eval --model promoted`.
 - **Purchase time:** `gatepy.serve` scores a `GateRequest` (`POST /gate/risk`), fetching the listing and references itself
   and failing closed.
+- **Gate service** (`gatepy.app`, `gate/Dockerfile`): the Gate as its own Railway service, separate from the agent API.
+  `POST /decide` (`GateRequest` -> `GateDecision`), `GET /health`, `GET /version`; Layer 1 in one long-lived Node
+  process. The image installs the deployed model and its exact feature code from `gates/` and refuses to start if
+  they don't match. Railway settings and the release procedure: `gates/README.md`.
+- **Gate archive** (`gates/`): every kept model with its own feature code, card and benchmark; `gates/CURRENT` is the
+  deployed one (`r2-f0bfbd`: 91.8% accuracy, 88.1% of seen-family scams caught, 1.8% model false blocks on the
+  benchmark). `uv run --project gate gate-release export|install|verify`.
 
 ## Red-team loop
 
@@ -484,6 +491,9 @@ packages/
   common/    Shared store code: MongoDB listings, x402 checkout, highlights, page shell
   amazon/    Shared storefront used by mzn and its scam lookalike
 contracts/   Shared schemas (issue #1), MongoDB access and ingestion CLI (uv package calhacks-contracts)
+gate/        Payment Gate: Layer 1 (TypeScript rules), Layer 2 (LightGBM), service (gate/Dockerfile)
+gates/       Released Gate models with their feature code; CURRENT is the deployed one
+redteam/     Red-team loop: attack factory, MCP server, coordinator, dry runs, benchmark
 docs/plans/  Red-team loop + Gate implementation plan
 package.json npm workspaces for the stores + root dev scripts
 ```
@@ -531,6 +541,9 @@ Keep this section current (see `AGENTS.md`).
 - [ ] Automatic buying (the sidebar switch is off and disabled)
 - [x] Gate Layer 1: fixed TypeScript rules over the issue #1 `GateInput`
 - [x] Gate Layer 2: LightGBM risk model trained and evaluated on MongoDB data, `POST /gate/risk`
+- [x] Gate service and release archive: `gate/Dockerfile` (Railway), `POST /decide`, `gates/` with the red-teamed
+  `r2-f0bfbd` as `CURRENT`
+- [ ] Gate service deployed on Railway and its database loaded with the listings Scout proposes
 - [ ] Wallet signer + x402 payment against Base Sepolia
 - [x] Bitdeer attack generation from real MongoDB listings (`mutate_real` / `generate`), labels and attack diffs set by code
 - [ ] Labeled dataset generated from real listings (blocked on real listings in MongoDB)
