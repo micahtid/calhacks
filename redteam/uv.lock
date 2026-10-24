@@ -276,6 +276,7 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.9" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "scikit-learn", specifier = ">=1.5" },
+    { name = "uvicorn", marker = "extra == 'serve'", specifier = ">=0.30" },
 ]
 provides-extras = ["serve"]
 

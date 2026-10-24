@@ -71,3 +71,10 @@ cd gate && uv run pytest                                # mongomock, never Atlas
   `recall` / `layer2_recall` and reported as `policy_bounded_recall`; `per_family` still lists them.
 - `gatepy.serve.Gate(...).score(GateRequest)` / `make_router()` (`POST /gate/risk`) are for the wallet. The Gate fetches
   the listing by `proposal.listing_id` and looks up references itself; any error is a 503 "skip".
+- `gatepy.app` is the deployable service (`gate/Dockerfile`, built from the repo root): `POST /decide`, `GET /health`,
+  `GET /version`, with Layer 1 kept in one long-lived Node process (`layer1_bridge.Layer1Process`). It loads
+  `GATE_MODEL_ID` (default `../gates/CURRENT`) and refuses to start if `gate/features` doesn't match the model's
+  feature-code hash. `uv run --project gate --extra serve uvicorn --factory gatepy.app:create_app --port 8080`.
+- `gate-release export <id> --models DIR` writes a model and its exact feature code to `../gates/<id>/`;
+  `gate-release install [id]` puts them into `gate/models` and `gate/features` (the Docker build does this);
+  `gate-release verify [id]` checks the hash. See `../gates/README.md`.
