@@ -21,13 +21,13 @@ export type Listing = { id: number; title: string; store: string; price: number;
 type Source = { store: string; count: number; scamRate: number; reasons: Reason[] };
 
 export const SOURCES: Source[] = [
-  { store: "eBay", count: 71, scamRate: 0.18, reasons: ["Unknown Seller", "Too Cheap to Be Real", "Fake Reviews"] },
-  { store: "Amazon", count: 46, scamRate: 0, reasons: [] },
+  { store: "by", count: 71, scamRate: 0.18, reasons: ["Unknown Seller", "Too Cheap to Be Real", "Fake Reviews"] },
+  { store: "mzn", count: 46, scamRate: 0, reasons: [] },
   { store: "Mercari", count: 34, scamRate: 0.2, reasons: ["Fake Reviews", "Unknown Seller"] },
   { store: "Lukie Games", count: 22, scamRate: 0, reasons: [] },
   { store: "Craigslist", count: 18, scamRate: 0.35, reasons: ["Hidden Instructions", "Unknown Seller"] },
   { store: "DKOldies", count: 15, scamRate: 0, reasons: [] },
-  { store: "Amazon Official Outlet", count: 14, scamRate: 1, reasons: ["Fake Store Website", "Fake Reviews"] },
+  { store: "mzn Official Outlet", count: 14, scamRate: 1, reasons: ["Fake Store Website", "Fake Reviews"] },
   { store: "Pixel Cart Retro", count: 12, scamRate: 0, reasons: [] },
   { store: "pixelcart-retro.co", count: 9, scamRate: 1, reasons: ["Wrong Payment Address", "Fake Store Website"] },
   { store: "gameboy-deals.shop", count: 7, scamRate: 1, reasons: ["Too Cheap to Be Real"] },
@@ -58,9 +58,9 @@ function random(seed: number) {
 
 // The three best verified listings, placed at fixed spots in the scrape.
 export const PICKS: (Listing & { note: string })[] = [
-  { id: -1, title: "Pokémon Red Version, Tested With New Save Battery", store: "Amazon", price: 8.5, condition: "Good · Tested", note: "Tested, with a new save battery." },
+  { id: -1, title: "Pokémon Red Version, Tested With New Save Battery", store: "mzn", price: 8.5, condition: "Good · Tested", note: "Tested, with a new save battery." },
   { id: -2, title: "Pokemon Red Version Nintendo Game Boy Tested", store: "Lukie Games", price: 8.99, condition: "Good · Tested", note: "Tested, with the original battery." },
-  { id: -3, title: "Pokémon Red (Game Boy, 1998) Cart Only", store: "eBay", price: 7.75, condition: "Fair", note: "Cheapest, but the label is torn and saves aren’t tested." },
+  { id: -3, title: "Pokémon Red (Game Boy, 1998) Cart Only", store: "by", price: 7.75, condition: "Fair", note: "Cheapest, but the label is torn and saves aren’t tested." },
 ];
 
 function buildListings(): Listing[] {
@@ -96,21 +96,21 @@ export const REJECTED = LISTINGS.filter((listing) => listing.reason);
 export const STORE_WALLET = "0x7a3f9c2e81b4d65f0a9e3c17b52d8f4e6a01c91e";
 
 export const CHECKOUT = [
-  { label: "Start Checkout at Amazon", detail: "Asked Amazon to sell this exact listing." },
-  { label: "Get the Price and Payment Address", detail: "Amazon asked for 8.50 USDC to its verified wallet." },
+  { label: "Start Checkout at mzn", detail: "Asked mzn to sell this exact listing." },
+  { label: "Get the Price and Payment Address", detail: "mzn asked for 8.50 USDC to its verified wallet." },
   { label: "Double-Check Before Paying", detail: "The store, price, wallet and your $10.00 limit all match." },
   { label: "Approve the Exact Amount", detail: "8.50 USDC from your Hunter wallet, nothing more." },
   { label: "Send the Payment", detail: "The USDC transfer was confirmed on Base Sepolia." },
-  { label: "Order Confirmed", detail: "Amazon confirmed order AMZ-114-8273615." },
+  { label: "Order Confirmed", detail: "mzn confirmed order MZN-114-8273615." },
 ];
 
 export const RECEIPT = {
   item: INSTRUCTION.item,
   note: PICKS[0].note,
-  store: "Amazon",
+  store: "mzn",
   amount: "8.50 USDC",
   network: "Base Sepolia",
-  order: "AMZ-114-8273615",
+  order: "MZN-114-8273615",
   paid: "Oct 23, 2026 · 4:42 PM",
   arrives: "Mon, Oct 27",
   txHash: "0x3b7e9d10c4a25f86e1d3b0a97c64e2f58d1a0b3c7e92f46d85a1c0e3b7f29d64",

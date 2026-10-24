@@ -21,7 +21,7 @@ export default function Header({ store, categories }: { store: Store; categories
           <div className="nav-search-scope">
             All <span className="caret" />
           </div>
-          <input type="text" name="k" placeholder="Search Amazon" aria-label="Search Amazon" />
+          <input type="text" name="k" placeholder="Search mzn" aria-label="Search mzn" />
           <button type="submit" aria-label="Go">
             <Search />
           </button>
@@ -58,7 +58,7 @@ export default function Header({ store, categories }: { store: Store; categories
       </nav>
       {categories && (
         <div className="subnav">
-          <b>Amazon Fashion</b>
+          <b>mzn Fashion</b>
           {categories.map((label) => (
             <span key={label}>{label}</span>
           ))}

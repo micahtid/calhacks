@@ -11,8 +11,8 @@ export default function Header() {
         <b>Free Shipping on Your First Order.</b> No minimum spend. Valid 7 days from signup. T&amp;Cs apply.
       </div>
       <div className="bar">
-        <Link href="/" className="logo" aria-label="Depop">
-          depop
+        <Link href="/" className="logo" aria-label="dpp">
+          dpp
         </Link>
         <form className="search" action="/" role="search">
           <Search />

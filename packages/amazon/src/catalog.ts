@@ -13,7 +13,7 @@ export async function itemParams(store: Store) {
 
 export async function itemMetadata(store: Store, id: string): Promise<Metadata> {
   const item = (await itemsOf(store)).find((entry) => entry.id === id);
-  return { title: item ? `Amazon.com: ${item.title} : Clothing, Shoes & Jewelry` : "Amazon.com" };
+  return { title: item ? `${store.brand}: ${item.title} : Clothing, Shoes & Jewelry` : store.brand };
 }
 
 // The real and scam stores sell through the same x402 checkout. The company on the page is who gets paid.

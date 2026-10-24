@@ -4,7 +4,7 @@ import "@calhacks/common/base.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Electronics, Cars, Fashion, Collectibles & More | eBay",
+  title: "Electronics, Cars, Fashion, Collectibles & More | by",
   description: "Buy and sell clothing, outerwear, and more.",
 };
 

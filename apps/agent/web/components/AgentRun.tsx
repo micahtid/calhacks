@@ -210,7 +210,7 @@ export function AgentRun({ instant, onDone }: { instant?: boolean; onDone?: () =
       )}
 
       {run.stage >= 4 && (
-        <Stage {...stageProps(4)} title="Paying the Store" live="Amazon · USDC">
+        <Stage {...stageProps(4)} title="Paying the Store" live="mzn · USDC">
           <ol className="checkout">
             {CHECKOUT.map((item, index) => {
               const state = index < run.paid ? "done" : index === run.paid && run.stage === 4 ? "active" : "pending";
