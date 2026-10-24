@@ -1,41 +1,52 @@
 # redteam
 
-The red-team loop from `docs/plans/redteam-gate.md` (Part 4): Bitdeer attack generation, the sealed holdout, the MCP
-tools the Factory coordinator uses, the guard hook, and the coordinator itself.
+The red-team loop from `docs/plans/redteam-gate.md` (Part 4 and Revision 2): Bitdeer attack generation from real
+MongoDB listings, the sealed holdout, the MCP tools the Factory coordinator uses, the guard hook, and the coordinator.
+Schemas come from `contracts/` (issue #1); data lives in MongoDB (`calhacks_contracts.db`).
 
-Keys go in `<repo>/.env` (gitignored): `BITDEER_API_KEY`, `BITDEER_KEY_GLM` (may be the same key).
+Env (repo-root `.env.local` / `.env`, gitignored): `MONGODB_URI`, optional `MONGODB_DB_REDTEAM` (default `redteam`),
+`BITDEER_API_KEY`, `BITDEER_KEY_GLM` (may be the same key). On this network uv may need `UV_SYSTEM_CERTS=1`.
 
 ## Commands
 
-All commands run from the repo root.
+All commands run from the repo root. Real listings must be in MongoDB first (`contracts-ingest listings ...`).
 
-| What | Command | Needs keys |
+| What | Command | Needs |
 |---|---|---|
-| Tests (offline) | `uv run --project redteam pytest -q redteam/tests` | no |
-| Seed batch, templated | `uv run --project redteam python -m redteam.generate --round 0 --family mixed --n 300 --offline --batch-id b01-seed` | no |
-| Live batch | `uv run --project redteam python -m redteam.generate --round 0 --family mixed --n 60 --batch-id b02-live-mixed` | yes |
-| Holdout, templated placeholder | `uv run --project redteam python -m redteam.holdout build --offline` | no |
-| Holdout, real (Nemotron) | `uv run --project redteam python -m redteam.holdout build --force` | yes |
-| Holdout totals for a model | `uv run --project redteam python -m redteam.holdout totals --model promoted` | no |
+| Tests | `uv run --project redteam pytest -q redteam/tests` | nothing (mongomock, fake Bitdeer) |
+| One attack spec | `uv run --project redteam python -m redteam.generate --round 1 --family too_cheap --n 40` | MongoDB; Bitdeer for LLM families |
+| Spec from a file | `uv run --project redteam python -m redteam.generate --round 1 --spec spec.json` | same |
+| Build the holdout (once) | `uv run --project redteam python -m redteam.holdout build [--per-family 60] [--slice 20]` | MongoDB, Bitdeer |
+| Holdout totals | `uv run --project redteam python -m redteam.holdout totals --model promoted` | MongoDB |
 | MCP server (droid spawns it) | `uv run --project redteam python -m redteam.mcp_server` | — |
-| One coordinator round | `uv run --project redteam python -m redteam.coordinator --round 1` | yes |
-| Cheap dry run | `... redteam.coordinator --round 1 --offline-gen --max-listings 120` | yes (coordinator model) |
-| Resume a round | `... redteam.coordinator --round 1 --resume <session_id>` | yes |
-| Canary isolation test | `REDTEAM_LIVE=1 uv run --project redteam pytest -s redteam/tests/test_isolation.py` | yes |
-| Rounds table | `uv run --project redteam python -m redteam.report` | no |
+| One coordinator round | `uv run --project redteam python -m redteam.coordinator --round 1 [--max-listings 60]` | MongoDB, Bitdeer |
+| Resume a round | `... redteam.coordinator --round 1 --resume <session_id>` | same |
+| Canary isolation test | `REDTEAM_LIVE=1 uv run --project redteam pytest -s redteam/tests/test_isolation.py` | Bitdeer |
+| Rounds table | `uv run --project redteam python -m redteam.report` | MongoDB |
 
 ## Where things go
 
-- `data/rounds/R{n}/b*.jsonl`: Snapshot batches (+ `.meta.json`). Also per round: `calls.jsonl` (every MCP call),
-  `budget.json`, `score.json`, `promotion.json`, `session.json`, `usage.json`, `events.jsonl`, `report.json`.
-- `data/guard.log`: every guard-hook decision.
-- `../calhacks-holdout/`: `holdout.jsonl.enc`, `holdout.key`, `holdout.meta.json`. Outside the repo; only the MCP
-  server process gets the key.
-- `gate/models/`: model files and `promoted.json` (written by `promote_model`).
+- **MongoDB** (`redteam` database): synthetic `listings` + `answer_keys` + `gen` + `cases` (via `Repo.put_synthetic`),
+  simulated `crs_results` (`source: "synthetic"`) and `wallets` for generated sellers, `specs` (each AttackSpec, its
+  round and summary) and `rounds` (generation spend, score, promotions, the RoundReport, coordinator usage).
+- **`gate/models/`**: model files and `promoted.json` (history includes the holdout totals recorded on promotion).
+- **`data/rounds/R{n}/`**: local logs only: `calls.jsonl` (every MCP call), `usage.json`, `events.jsonl`, `report.json`.
+- **`$CALHACKS_HOLDOUT`** (default `../calhacks-holdout/`): `holdout.v2.enc` (listings, answer keys, cases and their
+  simulated references, encrypted), `holdout.key`, `holdout.v2.meta.json` (counts only). Never in MongoDB.
+
+## How a round works
+
+1. `coordinator.py` builds the round's `RoundInput` in code (current model, last report, coverage, validation misses,
+   holdout totals for the current model, feature list) and puts it in the prompt.
+2. The coordinator orders `AttackSpec`s through `generate_attacks`. The main mode, `mutate_real`, copies real listings and
+   changes one thing in code; LLM families get their text rewritten by Bitdeer.
+3. `score_round` scores fresh attacks against last round's model (attack success). `inspect_failures` shows the misses.
+4. It edits `gate/features/*` (real Gate only), runs `train_gate`, then `promote_model`. Code applies C6 and, on
+   refusal, restores the promoted model's feature code.
+5. It returns a `CoordinatorOutput`. Code assembles the `RoundReport` (metrics, decision, cost) and saves it to MongoDB.
 
 ## Gate backend
 
-`redteam/src/redteam/gate_client.py` has a single switch, `GATE_BACKEND` (env `REDTEAM_GATE=stub|real`). Until
-`feat/gate` is merged it uses `gate_stub.py`, which prints the same JSON as the real `gate-train`/`gate-eval` but
-ignores `gate/features/*`. In stub mode the coordinator isn't allowed to edit features; it lists the changes it
-would make in its report instead.
+`redteam/src/redteam/gate_client.py` switches between `stub` (default; `gate_stub.py`, same JSON as the real CLIs)
+and `real` (the `gate-train` / `gate-eval` CLIs, and `gatepy` in-process for the holdout). `REDTEAM_GATE=real`
+overrides it. The stub ignores `gate/features/`, so feature editing is disabled in stub runs.
