@@ -5,7 +5,7 @@ shown to the model; exit 0 allows it.
 
 Policy, by path rather than by keyword (the old hook blocked any input containing the word "holdout"):
   - every path in the input must resolve inside --root (the coordinator's cwd, gate/), and no path may name holdout data;
-  - edits only under features/ or to train_config.yaml;
+  - edits only under features/ (including shared helpers such as features/_text.py) or to train_config.yaml;
   - Task only for the attack-strategist droid;
   - no shell, web, Skill or automation tools; MCP tools only from the redteam server.
 
@@ -25,7 +25,7 @@ PATH_KEYS = {"file_path", "path", "directory_path", "dir", "cwd", "target_file",
 LIST_PATH_KEYS = {"paths", "file_paths", "files"}
 PATTERN_KEYS = {"glob_pattern", "pattern", "glob"}
 CONTENT_KEYS = {"content", "new_string", "old_string", "patch", "input", "edits", "new_source"}
-HOLDOUT_TOKENS = ("calhacks-holdout", "holdout.key", "holdout.jsonl", "holdout.meta")
+HOLDOUT_TOKENS = ("calhacks-holdout", "holdout.key", "holdout.jsonl", "holdout.meta", "holdout.v2")
 ABS_PATH = re.compile(r"(?:\b[A-Za-z]:[\\/]|\\\\[^\\\s]|file://|~[\\/])")
 PARENT_SEG = re.compile(r"(?:^|[\\/])\.\.(?:[\\/]|$)")
 

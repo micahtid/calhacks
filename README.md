@@ -143,20 +143,30 @@ On this network uv may need `UV_SYSTEM_CERTS=1` (TLS interception).
 ## Red-team loop
 
 `redteam/` (uv project) makes attack listings, keeps the sealed holdout, and runs the Factory coordinator. All
-listings live in MongoDB through `calhacks-contracts`; nothing is read from local data files.
+listings live in MongoDB through `calhacks-contracts`; nothing is read from local data files. Full command list:
+`redteam/README.md`.
 
 - **Attack factory** (`redteam.generate`): an `AttackSpec` in, `SyntheticListing`s out to MongoDB. The main mode,
   `mutate_real`, copies a real listing and changes one thing in code (wallet, price, checkout id, product, seller,
   domain, hidden text), recorded in the answer key's `attack_diff`. Families that need wording (prompt injection,
   fake reviews, urgency, mixed reviews) get their text or reviews rewritten by Bitdeer (GLM-5.3-Flash and
   DeepSeek-V4.1-Flash in rotation). Bad LLM output is retried once, then dropped, and drops are counted per family.
+- **Holdout** (`redteam.holdout`): built once from the real listings, holding the two held-out families plus a slice
+  of every other family, with text written by Nemotron. It's stored encrypted outside the repo with its simulated
+  references, never in MongoDB, and scored in memory to totals only.
+- **Coordinator** (`redteam.coordinator`): one Factory Droid SDK session per round on Bitdeer DeepSeek-V4.1-Flash, with
+  a GLM-5.3 attack-strategist droid. It sees the world only through the stdio MCP tools (`get_round_input`,
+  `generate_attacks`, `score_round`, `inspect_failures`, `train_gate`, `eval_gate`, `promote_model`). A guard hook
+  limits it to `gate/features/*` and `gate/train_config.yaml`. Promotion (validation recall up, false blocks ≤ 2%, no
+  family down more than 5 points) and the `RoundReport` numbers are computed in code.
+- **Gate backend:** a stub with the same interface stands in until the Gate branch is merged (`REDTEAM_GATE=real` after).
 
   ```sh
   uv run --project redteam python -m redteam.generate --round 1 --family too_cheap --n 40 --legit-ratio 0.4
+  uv run --project redteam python -m redteam.coordinator --round 1 --max-listings 60
+  uv run --project redteam python -m redteam.report
+  uv run --project redteam pytest          # mongomock + fake Bitdeer client, no network
   ```
-
-  Needs real listings in MongoDB first (`contracts-ingest listings`). `BITDEER_API_KEY` goes in `.env` or `.env.local`.
-- **Tests:** `uv run --project redteam pytest` (mongomock and a fake Bitdeer client; no network).
 
 ## Prize tracks
 
@@ -203,6 +213,6 @@ Keep this section current (see `AGENTS.md`).
 - [ ] Wallet signer + x402 payment against Base Sepolia
 - [x] Bitdeer attack generation from real MongoDB listings (`mutate_real` / `generate`), labels and attack diffs set by code
 - [ ] Labeled dataset generated from real listings (blocked on real listings in MongoDB)
-- [ ] Scoring harness with held-out set and catch-rate reporting
-- [ ] Factory spec + Fix Droid loop
+- [x] Scoring harness: issue #1 RoundMetrics (Wilson intervals, `fpr_real`, `adaptive_recall`), encrypted holdout scored to totals only, rounds table from MongoDB
+- [x] Factory coordinator loop: per-round Droid SDK session, MCP tools, guard hook, strategist droid, code-enforced promotion (runs against a stub Gate until the Gate branch is merged)
 - [ ] Demo UI (rules input, payment view)

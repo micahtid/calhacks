@@ -1,4 +1,8 @@
-"""Rounds table for the demo and dashboard: attack success, validation, holdout totals and spend per round.
+"""Rounds table for the demo and dashboard, read from MongoDB (`rounds` collection) and promoted.json.
+
+Per round: attack success of fresh attacks against last round's model, the candidate's validation numbers (recall,
+false blocks, false blocks on real listings, adaptive recall), the code's promotion decision, holdout totals for the
+promoted model, cost and hook denials.
 
 Usage: uv run --project redteam python -m redteam.report [--json]
 """
@@ -6,50 +10,52 @@ import argparse
 import json
 import sys
 
-from redteam.config import DATA, ROUNDS
-from redteam.coordinator import _guard_denials
+from redteam import store
+from redteam.config import DATA
 from redteam.promotion import current
 
 
-def _read(path):
-    return json.loads(path.read_text()) if path.exists() else None
+def _v(rate):
+    return rate and rate.get("value")
 
 
 def rows() -> list[dict]:
-    history = {h["round"]: h for h in current()["history"]}
+    history = {h["model_id"]: h for h in current()["history"]}
     out = []
-    for d in sorted((p for p in ROUNDS.glob("R*") if p.name[1:].isdigit()), key=lambda p: int(p.name[1:])):
-        r = int(d.name[1:])
-        score, promo, usage, budget = (_read(d / f) for f in ("score.json", "promotion.json", "usage.json",
-                                                              "budget.json"))
-        h = history.get(r)
+    for doc in store.all_rounds(store.repo()):
+        rep = doc.get("report") or {}
+        m = rep.get("metrics") or {}
+        promos = doc.get("promotions") or []
+        promoted = [p["model_id"] for p in promos if p.get("promoted")]
+        h = history.get(promoted[-1]) if promoted else None
+        hold = (h or {}).get("holdout") or {}
+        usage = doc.get("usage") or {}
         out.append({
-            "round": r,
-            "attack_success": score and score["attack_success"],
-            "scored_model": score and score["model_id"],
-            "candidate": promo and promo["model_id"],
-            "promoted": promo and promo["promoted"],
-            "refused_because": promo and promo["reasons"],
-            "val_recall": promo and promo["candidate_val"]["recall"],
-            "val_fpr": promo and promo["candidate_val"]["fpr"],
-            "holdout_recall": h and h["holdout"] and h["holdout"]["recall"],
-            "holdout_fpr": h and h["holdout"] and h["holdout"]["fpr"],
-            "holdout_recall_l2": h and h["holdout"] and h["holdout"]["recall_l2"],
-            "gen_tokens": budget and budget["gen_tokens"],
-            "coord_tokens": usage and usage["usage"] and sum(v or 0 for k, v in usage["usage"].items()
-                                                            if k in ("input_tokens", "output_tokens")),
-            "hook_denials": usage and len(_guard_denials(usage["session_id"])),
+            "round": doc["_id"],
+            "attack_success": (doc.get("score") or {}).get("attack_success"),
+            "candidate": promos[-1]["model_id"] if promos else None,
+            "decision": (rep.get("decision") or {}).get("action"),
+            "val_recall": _v(m.get("recall")),
+            "val_fpr": _v(m.get("fpr")),
+            "fpr_real": _v(m.get("fpr_real")),
+            "layer2_recall": _v(m.get("layer2_recall")),
+            "adaptive_recall": _v(m.get("adaptive_recall")),
+            "holdout_recall": _v(hold.get("recall")),
+            "holdout_fpr": _v(hold.get("fpr")),
+            "tokens": (rep.get("cost") or {}).get("tokens"),
+            "usd": (rep.get("cost") or {}).get("usd"),
+            "hook_denials": len(usage.get("hook_denials") or []),
         })
     return out
 
 
-def fmt(v):
+def fmt(v, col=""):
     if v is None:
         return "-"
+    if col == "usd":
+        return f"${v:.3f}"
     if isinstance(v, float):
-        return f"{v:.1%}" if v <= 1 else f"{v:.0f}"
-    if isinstance(v, list):
-        return "; ".join(v) or "-"
+        return f"{v:.1%}" if v <= 1 else f"{v:.2f}"
     return str(v)
 
 
@@ -58,16 +64,16 @@ def main(argv=None):
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     data = rows()
-    (DATA / "report.json").write_text(json.dumps(data, indent=1))
+    DATA.mkdir(parents=True, exist_ok=True)
+    (DATA / "report.json").write_text(json.dumps(data, indent=1, default=str))
     if a.json:
-        print(json.dumps(data, indent=1))
+        print(json.dumps(data, indent=1, default=str))
         return 0
-    cols = ["round", "attack_success", "candidate", "promoted", "val_recall", "val_fpr", "holdout_recall",
-            "holdout_fpr", "gen_tokens", "coord_tokens", "hook_denials"]
+    cols = list(data[0]) if data else ["round"]
     print("| " + " | ".join(cols) + " |")
     print("|" + "---|" * len(cols))
     for r in data:
-        print("| " + " | ".join(fmt(r[c]) for c in cols) + " |")
+        print("| " + " | ".join(fmt(r[c], c) for c in cols) + " |")
     return 0
 
 
