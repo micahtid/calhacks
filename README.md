@@ -408,9 +408,13 @@ listings live in MongoDB through `calhacks-contracts`; nothing is read from loca
   (`REDTEAM_LOCAL_STORE`) is shared between the coordinator and the MCP server and saved after every tool call. The
   holdout is built from the snapshot's locked-test listings (including those real listings, unmodified).
   `REDTEAM_ATTACKER_KNOWLEDGE` and `REDTEAM_SEED` fix the attacker type and seed. Run each dry run from its own git
-  worktree, so the coordinator's feature edits are saved per round as diffs and never touch committed code:
+  worktree, so the coordinator's feature edits are saved per round as diffs and never touch committed code.
+  `--base-store` seeds round 0 with an evenly mixed generated dataset from the same snapshot side (every seen family)
+  and promotes a baseline Gate trained on it, so the coordinator's data is added on top of full coverage and its
+  first candidate has an incumbent to beat; promotion then also refuses a candidate whose validation lacks any seen
+  family. `--holdout-from` reuses a sealed holdout built earlier for the same snapshot:
   ```sh
-  uv run --project redteam python -m redteam.dryrun init    --run DIR --snapshot SNAP [--seed N] [--knowledge white_box] [--all-known]
+  uv run --project redteam python -m redteam.dryrun init    --run DIR --snapshot SNAP [--seed N] [--knowledge white_box] [--all-known] [--base-store STORE] [--holdout-from DIR]
   uv run --project redteam python -m redteam.dryrun holdout --run DIR [--per-family 60 --slice 20]
   uv run --project redteam python -m redteam.dryrun round   --run DIR --round N [--max-listings 300]
   uv run --project redteam python -m redteam.dryrun summary --run DIR   # summary.json + summary.md
@@ -446,7 +450,10 @@ listings live in MongoDB through `calhacks-contracts`; nothing is read from loca
   a GLM-5.3 attack-strategist droid. It sees the world only through the stdio MCP tools (`get_round_input`,
   `generate_attacks`, `score_round`, `inspect_failures`, `train_gate`, `eval_gate`, `promote_model`). Droid fails an
   MCP call after 180 s and loses the server for the round, so `generate_attacks` runs one call at a time (a parallel
-  call is refused at once) and each call returns within about two minutes, listing slots it had no time for as dropped. A guard hook
+  call is refused at once) and each call returns within about two minutes, listing slots it had no time for as dropped. A round
+  has a 20-minute window: generation and training close near its end, at most 6 `train_gate` calls are allowed, no
+  family gets more than 40 new scams per round, and the session is interrupted 6 minutes after the window. The round
+  input is built before the session and cached for `get_round_input`. A guard hook
   limits edits to `gate/features/<name>.py` and `gate/train_config.yaml`, and Gate subprocesses never receive the holdout key. Promotion (validation recall up, Layer 2 false blocks ≤ 2% — Layer 1 policy blocks such as unknown wallets over the cap are reported separately, no
   family down more than 5 points) and the `RoundReport` numbers are computed in code.
 - **Gate backend:** the real Gate in `gate/` (path dependency). `REDTEAM_GATE=stub` selects a fast stand-in used by unit tests.

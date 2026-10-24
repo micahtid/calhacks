@@ -3,19 +3,23 @@
 Promote only if, on the current validation set, compared with the incumbent:
   - full-Gate recall improves,
   - the Layer 2 false-block rate (legit listings that pass Layer 1 but the model skips) stays <= MAX_FPR,
-  - no scam family's recall drops by more than MAX_FAMILY_DROP.
-With no incumbent, only the false-block bound applies. On promotion the holdout totals are recorded in
+  - no scam family's recall drops by more than MAX_FAMILY_DROP, and every seen scam family has at least
+    MIN_FAMILY_VAL val rows when the data guarantees coverage (REDTEAM_REQUIRE_COVERAGE=1, set by dry runs seeded
+    with a base dataset): a family the candidate can't be checked on counts as a regression, not a pass.
+With no incumbent, only the false-block bound and the coverage check apply. Dry runs promote a baseline trained on the
+base dataset at init, so the coordinator's first candidate already has an incumbent to beat. On promotion the holdout totals are recorded in
 gate/models/promoted.json through the Gate's own set_promoted. On refusal the promoted model's feature
 code is restored, since the coordinator edits gate/features/ in place.
 """
 import json
+import os
 from collections.abc import Callable
 
 from calhacks_contracts import HoldoutTotals, PromotionDecision
-from calhacks_contracts.families import families
+from calhacks_contracts.families import families, holdout_families, policy_bounded_families
 
 from redteam import gate_client
-from redteam.config import MAX_FAMILY_DROP, MAX_FPR, MODELS_DIR
+from redteam.config import MAX_FAMILY_DROP, MAX_FPR, MIN_FAMILY_VAL, MODELS_DIR
 
 
 def promoted_file():
@@ -37,16 +41,23 @@ def decide(candidate: dict, incumbent: dict | None) -> tuple[bool, list[str]]:
     recall = candidate["recall"]["value"]
     if fpr > MAX_FPR:
         reasons.append(f"val {'Layer 2 ' if l2 else ''}false-block rate {fpr:.3f} > {MAX_FPR}")
+    fams = families()
+    skip = holdout_families() | policy_bounded_families()
+    seen = [f for f, v in fams.items() if v["label"] == "scam" and f not in skip]
+    thin = sorted(f for f in seen if (candidate["per_family"].get(f) or {}).get("n", 0) < MIN_FAMILY_VAL)
+    if thin and os.environ.get("REDTEAM_REQUIRE_COVERAGE") == "1":
+        reasons.append(f"val has fewer than {MIN_FAMILY_VAL} rows of {', '.join(thin)}: can't check them")
     if incumbent:
         old = incumbent["recall"]["value"]
         if recall <= old:
             reasons.append(f"val recall {recall:.3f} does not beat incumbent {old:.3f}")
-        fams = families()
         for fam, o in incumbent["per_family"].items():
             if fams.get(fam, {}).get("label") != "scam":
                 continue
             n = candidate["per_family"].get(fam)
-            if n and o["value"] - n["value"] > MAX_FAMILY_DROP:
+            if n is None:
+                reasons.append(f"{fam} has no val rows for the candidate")
+            elif o["value"] - n["value"] > MAX_FAMILY_DROP:
                 reasons.append(f"{fam} recall drops {o['value']:.2f} -> {n['value']:.2f}")
     return not reasons, reasons
 

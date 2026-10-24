@@ -77,3 +77,13 @@ def test_attack_success_uses_the_start_model_once(promoted_round, monkeypatch):
     # no start model (round 1 of a fresh run): recorded as unknown, not crashed
     assert coordinator.record_attack_success(1, None) is None
     assert store.get_round(repo, 1)["attack"]["attack_success"] is None
+
+
+def test_a_resumed_round_keeps_its_original_start_model(promoted_round, monkeypatch):
+    repo, first = promoted_round
+    assert store.get_round(repo, 2) is None
+    assert coordinator.start_model_for(2) == first          # first attempt records the incumbent
+    monkeypatch.setattr(coordinator.promotion, "current", lambda: {"model_id": "r2-promoted-mid-round"})
+    assert coordinator.start_model_for(2) == first          # the resumed attempt keeps it
+    repo.db.rounds.update_one({"_id": 3}, {"$set": {"start_model": None}}, upsert=True)
+    assert coordinator.start_model_for(3) is None           # "no model at the start" is kept too

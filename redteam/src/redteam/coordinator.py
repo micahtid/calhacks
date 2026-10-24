@@ -20,6 +20,7 @@ import time
 from calhacks_contracts import CoordinatorOutput, Cost, PromotionDecision, RoundMetrics, RoundReport, rate
 
 from redteam import gate_client, holdout, promotion, roundstate, store
+from redteam.config import FAMILY_ROUND_CAP, MAX_TRAIN_CALLS, ROUND_FINISH_SECONDS
 from redteam.config import (COORDINATOR_MODEL, DATA, FACTORY_SETTINGS, GATE_DIR, ROUND_WALL_SECONDS, STRATEGIST_DROID,
                             round_dir, usd)
 
@@ -89,6 +90,7 @@ def mcp_server(round_: int, max_listings: int):
            "REDTEAM_MAX_LISTINGS": str(max_listings), "PYTHONIOENCODING": "utf-8", "UV_SYSTEM_CERTS": "1"}
     for k in ("BITDEER_API_KEY", "CALHACKS_HOLDOUT", "CALHACKS_MODELS", "MONGODB_URI", "MONGODB_DB_REDTEAM",
               "REDTEAM_MONGOMOCK", "REDTEAM_LOCAL_STORE", "REDTEAM_ATTACKER_KNOWLEDGE", "REDTEAM_SEED", "GATE_AS_OF",
+              "REDTEAM_ROUND_DEADLINE", "REDTEAM_REQUIRE_COVERAGE",
               "PATH", "NODE", "SYSTEMROOT"):
         if os.environ.get(k):
             env[k] = os.environ[k]
@@ -118,8 +120,12 @@ def build_session(round_: int, *, model: str, max_listings: int = 300,
 
 
 def round_input_brief(round_: int) -> str:
-    """The RoundInput as compact JSON for the prompt (misses trimmed; the full object comes from get_round_input)."""
-    ri = roundstate.build_round_input(round_, max_misses=8).model_dump(mode="json")
+    """The RoundInput as compact JSON for the prompt (misses trimmed). The full object is built here once and cached
+    for get_round_input, so the coordinator's first tool call doesn't pay for a cold build."""
+    full = roundstate.build_round_input(round_).model_dump(mode="json")
+    (round_dir(round_) / "round_input.json").write_text(json.dumps(full, ensure_ascii=False), encoding="utf-8")
+    ri = json.loads(json.dumps(full))
+    ri["misses"] = ri["misses"][:8]
     for m in ri["misses"]:
         m["listing"]["item"]["text"] = m["listing"]["item"]["text"][:300]
         m["listing"]["reviews"] = [x[:140] for x in m["listing"]["reviews"][:3]]
@@ -160,6 +166,11 @@ This round's RoundInput (built by code; call get_round_input for the full object
 {brief}
 
 Procedure:
+Budget: you have {ROUND_WALL_SECONDS // 60} minutes. Generation and training close a few minutes before the end, and
+at most {MAX_TRAIN_CALLS} train_gate calls are allowed. Send generate_attacks calls one at a time. The training data
+already holds a base set covering every family, so spend this round on the families where the Gate is weakest; no
+family may get more than {FAMILY_ROUND_CAP} new scams in one round.
+
 1. If current_model_id is null, run train_gate(round=0) and promote_model on it as the baseline.
 2. Give the {STRATEGIST_DROID} the per-family numbers and misses, and ask for new attack specs.
 3. generate_attacks for 2-4 AttackSpecs: the weakest families, families with low coverage, and the strategist's best
@@ -168,7 +179,8 @@ Procedure:
 4. score_round (how last round's model holds up against the fresh attacks), then inspect_failures.
 5. {editing}
 6. train_gate, then promote_model on the new model id. Code decides promotion (validation recall must go up,
-   false blocks <= 2%, no family drops more than 5 points). If it is refused you may make one more fix and retry once.
+   false blocks <= 2%, no family drops more than 5 points). If it is refused you may make one more fix and retry,
+   within the training limit.
 7. Finish with your CoordinatorOutput: failures_by_cluster (cause, family, count, example_ids), feature_changes
    (feature, action add|modify|remove, rationale), train_params, and short notes. Metrics and the promotion decision
    are filled in by code; don't report them.
@@ -204,6 +216,20 @@ def record_audit(round_: int) -> dict:
         out = {"failing": None, "n": len(ids), "error": f"{type(e).__name__}: {e}"}
     store.save_round(r, round_, audit=out)
     return out
+
+
+def start_model_for(round_: int) -> str | None:
+    """The model this round's attacks are scored against: the one promoted when the round first started. Recorded on
+    the first attempt, before the MCP server starts (it loads the store when it launches); a resumed attempt keeps it,
+    since a model promoted during the round was trained on these attacks."""
+    r = store.repo()
+    prior = store.get_round(r, round_) or {}
+    if "start_model" in prior:
+        return prior["start_model"]
+    model = promotion.current()["model_id"]
+    store.save_round(r, round_, start_model=model)
+    store.flush()
+    return model
 
 
 def record_attack_success(round_: int, start_model: str | None) -> dict | None:
@@ -258,27 +284,33 @@ def assemble_report(round_: int, output: CoordinatorOutput | None, session_id: s
 async def run_round(round_: int, *, model: str, max_listings: int, resume: str | None, timeout: float) -> dict:
     allow_edits = gate_client.GATE_BACKEND != "stub"
     out_dir = round_dir(round_)
-    perm_log, events, tokens = [], [], {"in": 0, "out": 0}
+    perm_log, events, tokens, stopping = [], [], {"in": 0, "out": 0}, False
     brief = round_input_brief(round_)
+    # The MCP server's tools close at this time; set before build_session, which copies it into the server's env.
+    os.environ["REDTEAM_ROUND_DEADLINE"] = str(time.time() + timeout)
     session = build_session(round_, model=model, max_listings=max_listings, allow_edits=allow_edits,
                             perm_log=perm_log, resume=resume)
     prompt = round_prompt(round_, allow_edits, max_listings, brief) if not resume else \
         "Continue this round from where you stopped, then produce your CoordinatorOutput."
     started = time.time()
-    start_model = promotion.current()["model_id"]  # the model this round's attacks are scored against
+    start_model = start_model_for(round_)
     async with session as s:
         # Written after the session: during it the MCP server owns the store (a local dry-run store is a set of files,
         # and an earlier write from this process would be overwritten by the server's, or overwrite them).
         start_fields = {"session_id": s.id, "coordinator_model": model, "started": started, "resumed_from": resume,
                         "start_model": start_model}
-        async with s.stream(prompt, output=CoordinatorOutput, timeout=timeout) as st:
+        async with s.stream(prompt, output=CoordinatorOutput, timeout=timeout + ROUND_FINISH_SECONDS) as st:
             async for ev in st:
                 kind = type(ev).__name__
                 if kind == "ToolCall":
                     events.append({"t": round(time.time() - started, 1), "tool": ev.name})
                 elif kind == "HookExecution" and ev.status == "completed" and ev.exit_code == 2:
                     events.append({"t": round(time.time() - started, 1), "hook_denied": (ev.stderr or "")[:200]})
-                elif kind == "TokenUsageUpdate":
+                if time.time() > started + timeout + ROUND_FINISH_SECONDS and not stopping:
+                    stopping = True
+                    events.append({"budget": "round time exceeded; interrupting"})
+                    await s.interrupt()
+                if kind == "TokenUsageUpdate":
                     tokens = {"in": ev.input_tokens, "out": ev.output_tokens}
                     if ev.input_tokens + ev.output_tokens > COORD_TOKEN_BUDGET:
                         events.append({"budget": "coordinator token budget exceeded; interrupting"})

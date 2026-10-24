@@ -14,6 +14,7 @@ promoted.json), data/ (round logs, guard log), holdout/ (encrypted locked test s
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -27,6 +28,8 @@ def env_for(run: Path, cfg: dict) -> dict:
            "PYTHONIOENCODING": "utf-8"}
     if cfg.get("knowledge"):
         env["REDTEAM_ATTACKER_KNOWLEDGE"] = cfg["knowledge"]
+    if cfg.get("base_store"):  # every seen family is in the data, so promotion can insist on checking each one
+        env["REDTEAM_REQUIRE_COVERAGE"] = "1"
     return env
 
 
@@ -73,12 +76,66 @@ def seed_repo(r, snap: Path, side: str, all_known: bool, as_of: str) -> dict:
     return {"listings": len(listings), "known_sellers": len(known)}
 
 
-def init(run: Path, snap: Path, seed: int, knowledge: str | None, all_known: bool) -> dict:
+BASE_COLLECTIONS = ("listings", "listing_meta", "answer_keys", "cases", "gen", "specs")
+
+
+def add_base_dataset(r, base_store: Path) -> dict:
+    """Copy the synthetic listings of a base dataset (a store generated evenly over every seen family from the same
+    snapshot side) into `r` as round 0. The coordinator's data is added on top, so no seen family can drop out of
+    training or validation whatever it chooses to generate."""
+    from redteam import store
+    b = store.load_local(base_store)
+    if set(b.real_listing_ids()) != set(r.real_listing_ids()):
+        raise SystemExit(f"{base_store} was not built from this snapshot side (its real listings differ)")
+    synthetic = [k["_id"] for k in b.db.answer_keys.find({"family": {"$ne": "real"}}, {"_id": 1})]
+    for name in BASE_COLLECTIONS:
+        docs = list(b.db[name].find({} if name == "specs" else {"_id": {"$in": synthetic}}))
+        for d in docs:
+            if name == "specs":
+                d["round"] = 0
+        if docs:
+            r.db[name].insert_many(docs)
+    return {"base_listings": len(synthetic)}
+
+
+def copy_holdout(src: Path, run: Path) -> dict:
+    """Reuse a sealed holdout (built once per snapshot; the coordinator never sees it): the encrypted file, its key and
+    meta, without the earlier run's history."""
+    dst = run / "holdout"
+    dst.mkdir(parents=True, exist_ok=True)
+    files = [f for f in src.iterdir() if f.is_file() and not f.name.endswith("history.jsonl")]
+    if not any(f.name.endswith(".enc") for f in files):
+        raise SystemExit(f"no sealed holdout in {src}")
+    for f in files:
+        shutil.copy2(f, dst / f.name)
+    return {"holdout_files": sorted(f.name for f in files)}
+
+
+def promote_baseline(run: Path) -> dict:
+    """Train the Gate on round 0 (real listings plus the base dataset) with the committed features and make it the
+    incumbent, so round 1's candidates must beat it rather than nothing."""
+    _apply_env(run)
+    from redteam import gate_client, holdout, promotion, store
+    store.reload()
+    t = gate_client.train(0)
+    if t.get("error"):
+        raise SystemExit(f"baseline training failed: {t['error']}")
+    res = promotion.promote(t["model_id"], holdout.totals if holdout.available() else None)
+    if not res["promoted"]:  # the incumbent is the baseline whatever its numbers; record why it would be refused
+        h = holdout.totals(t["model_id"]) if holdout.available() else None
+        gate_client.set_promoted(t["model_id"], res.get("candidate_val") or t.get("val"),
+                                 h.model_dump(mode="json") if h else None)
+    return {"baseline": t["model_id"], "baseline_refusals": res["reasons"]}
+
+
+def init(run: Path, snap: Path, seed: int, knowledge: str | None, all_known: bool, base_store: Path | None = None,
+         holdout_from: Path | None = None) -> dict:
     if (run / "run.json").exists():
         raise SystemExit(f"{run} already initialised")
     manifest = json.loads((snap / "manifest.json").read_text())
     cfg = {"snapshot": str(snap), "snapshot_hashes": manifest["hashes"], "as_of": manifest["as_of"], "seed": seed,
-           "knowledge": knowledge, "all_known": all_known,
+           "knowledge": knowledge, "all_known": all_known, "base_store": base_store and str(base_store),
+           "holdout_from": holdout_from and str(holdout_from),
            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     for sub in ("store", "models", "data", "holdout", "diffs"):
         (run / sub).mkdir(parents=True, exist_ok=True)
@@ -87,7 +144,13 @@ def init(run: Path, snap: Path, seed: int, knowledge: str | None, all_known: boo
     from redteam import store
     r = store.empty_local_repo()
     out = seed_repo(r, snap, "train", all_known, cfg["as_of"])
+    if base_store:
+        out.update(add_base_dataset(r, base_store))
     store.write_local(r, run / "store")
+    if holdout_from:
+        out.update(copy_holdout(holdout_from, run))
+    if base_store:
+        out.update(promote_baseline(run))
     return {"run": str(run), **out}
 
 
@@ -119,6 +182,7 @@ def run_round(run: Path, round_: int, max_listings: int, timeout_s: int) -> dict
             code = proc.returncode
         except subprocess.TimeoutExpired:
             code = "timeout"
+    subprocess.run(["git", "add", "--intent-to-add", "--", "gate/features"], cwd=REPO, capture_output=True)  # new files
     diff = subprocess.run(["git", "diff", "--", "gate/features", "gate/train_config.yaml"], cwd=REPO,
                           capture_output=True, text=True, encoding="utf-8").stdout
     (run / "diffs" / f"R{round_}.diff").write_text(diff, encoding="utf-8")
@@ -250,6 +314,8 @@ def main(argv=None) -> int:
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--knowledge", choices=["blind", "white_box"])
     p.add_argument("--all-known", action="store_true")
+    p.add_argument("--base-store", type=Path, help="store whose synthetic listings seed round 0 (and a baseline model)")
+    p.add_argument("--holdout-from", type=Path, help="folder holding a sealed holdout to reuse")
     p = sub.add_parser("holdout")
     p.add_argument("--run", type=Path, required=True)
     p.add_argument("--per-family", type=int, default=60)
@@ -258,13 +324,14 @@ def main(argv=None) -> int:
     p.add_argument("--run", type=Path, required=True)
     p.add_argument("--round", type=int, required=True)
     p.add_argument("--max-listings", type=int, default=300)
-    p.add_argument("--timeout", type=int, default=50 * 60)
+    p.add_argument("--timeout", type=int, default=35 * 60)
     p = sub.add_parser("summary")
     p.add_argument("--run", type=Path, required=True)
     a = ap.parse_args(argv)
     run = a.run.resolve()
     if a.cmd == "init":
-        out = init(run, a.snapshot.resolve(), a.seed, a.knowledge, a.all_known)
+        out = init(run, a.snapshot.resolve(), a.seed, a.knowledge, a.all_known,
+                   a.base_store and a.base_store.resolve(), a.holdout_from and a.holdout_from.resolve())
     elif a.cmd == "holdout":
         out = build_holdout(run, a.per_family, a.slice)
     elif a.cmd == "round":
