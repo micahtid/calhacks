@@ -52,7 +52,10 @@ def test_eval_rows_carry_gate_decisions(trained, models_dir, repo):
     model = load(trained["model_id"], models_dir)
     out = evaluate_examples(model, load_examples(repo), repo.reference_snapshot(), with_rows=True)
     m = RoundMetrics.model_validate(out["metrics"])
-    assert m.recall.n + m.fpr.n == 350
+    # unknown_seller is policy-bounded: reported apart, not in recall
+    assert m.policy_bounded_recall is not None
+    assert m.recall.n + m.policy_bounded_recall.n + m.fpr.n == 350
+    assert "unknown_seller" in m.per_family
     assert m.fpr_real.n == 90
     l1 = [r for r in out["rows"] if r["decision"]["decided_by"] == "layer1"]
     assert l1 and all(r["decision"]["failed_rule"] and r["decision"]["risk_score"] is None for r in l1)

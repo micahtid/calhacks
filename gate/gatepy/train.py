@@ -3,7 +3,9 @@
   gate-train --round N [--config gate/train_config.yaml] [--query JSON] [--out gate/models]
   -> {"model_id", "round", "kind", "features", "n_train", "n_val", "threshold", "val": RoundMetrics}
 
-Training rows: split_of(listing_id) == "train", holdout families refused. `--query` filters answer_keys.
+Rows are split by base listing (calhacks_contracts.splits): the model is fitted on train rows that pass Layer 1, the
+threshold is picked on calibrate legit rows that pass Layer 1, and val metrics are reported on val. Holdout families
+are refused. `--query` filters answer_keys.
 """
 import argparse
 import hashlib
@@ -27,7 +29,6 @@ from gatepy.model_io import from_meta, save
 from gatepy.registry import Feature, discover, feature_code_hash, select, self_test
 from gatepy.sandbox import FeaturePolicyError
 from gatepy.selftest import fixture_inputs
-from gatepy.splits import split_of
 
 DEFAULT_CONFIG = GATE_DIR / "train_config.yaml"
 SELF_TEST_SAMPLE = 50
@@ -110,8 +111,9 @@ def train(round_: int, config: Path = DEFAULT_CONFIG, query: dict | None = None,
         raise GateInputError("feature self-test failed: " + "; ".join(errors[:5]))
 
     l1 = run_layer1(inputs)
-    split = [split_of(e.id) for e in examples]
+    split = [e.split for e in examples]
     tr = [i for i in range(len(examples)) if split[i] == "train" and passed(l1[i])]
+    cal = [i for i in range(len(examples)) if split[i] == "calibrate"]
     va = [i for i in range(len(examples)) if split[i] == "val"]
     y = np.array([e.key.label == "scam" for e in examples], dtype=int)
     if len(set(y[tr])) < 2:
@@ -129,16 +131,23 @@ def train(round_: int, config: Path = DEFAULT_CONFIG, query: dict | None = None,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "as_of": as_of().isoformat(), "query": query or {},
         "val_metrics": None,
-        "threshold_rule": {"max_fpr": max_fpr, "on": "val legit rows that pass Layer 1"},
-        "n_train": len(tr), "n_val": len(va),
+        "threshold_rule": {"max_fpr": max_fpr, "on": None},
+        "n_train": len(tr), "n_calibrate": len(cal), "n_val": len(va),
         "config_source": cfg_src, "config_is_default": config.resolve() == DEFAULT_CONFIG.resolve(),
         "feature_sources": {p.name: p.read_text(encoding="utf-8") for p in sorted((GATE_DIR / "features").glob("*.py"))},
     }
     model = from_meta(meta)
 
-    # Threshold on validation legit rows that reach Layer 2; fall back to training legit rows if val has none.
-    va_l2_legit = [i for i in va if passed(l1[i]) and y[i] == 0] or [i for i in tr if y[i] == 0]
-    risk = model.predict_risk(featurize([inputs[i] for i in va_l2_legit], feats))
+    # Threshold on calibrate legit rows that reach Layer 2 (never fitted on, never used for promotion), so val
+    # metrics stay an honest estimate. Fall back to training legit rows only if calibrate has none.
+    cal_legit = [i for i in cal if passed(l1[i]) and y[i] == 0]
+    if cal_legit:
+        meta["threshold_rule"]["on"] = "calibrate legit rows that pass Layer 1"
+    else:
+        cal_legit = [i for i in tr if y[i] == 0]
+        meta["threshold_rule"]["on"] = "train legit rows (fallback: calibrate had none)"
+    meta["threshold_rule"]["n"] = len(cal_legit)
+    risk = model.predict_risk(featurize([inputs[i] for i in cal_legit], feats))
     meta["threshold"] = pick_threshold(risk, max_fpr)
 
     digest = hashlib.sha256(json.dumps([meta["booster"], meta["coef"], meta["threshold"], meta["train_data_hash"],

@@ -372,7 +372,8 @@ Two layers decide whether the wallet may pay; both must say yes. Details: `gate/
   domain and wallet lookalikes, injection and hidden-text scores, review similarity. Each decision carries its top 3 reasons.
   Feature files are checked statically before import (`gatepy.sandbox`): no file, env, network or object-graph access.
 - **Data:** training and evaluation read listings, mandates and references from MongoDB (`MONGODB_DB_REDTEAM`); answer keys
-  are used only for scoring. `uv run --project gate gate-train --round N`, `uv run --project gate gate-eval --model promoted`.
+  are used only for scoring. Rows split by base listing into train (fit) / calibrate (threshold) / val (promotion);
+  unknown-seller scams are reported apart as `policy_bounded_recall`. `uv run --project gate gate-train --round N`, `uv run --project gate gate-eval --model promoted`.
 - **Purchase time:** `gatepy.serve` scores a `GateRequest` (`POST /gate/risk`), fetching the listing and references itself
   and failing closed.
 

@@ -1,6 +1,6 @@
 """gate-eval: run the full Gate (Layer 1, then Layer 2 only where Layer 1 passes) and report RoundMetrics.
 
-  gate-eval --model MODEL_ID|promoted [--split train|val|all] [--ids FILE] [--query JSON] [--rows]
+  gate-eval --model MODEL_ID|promoted [--split train|calibrate|val|all] [--ids FILE] [--query JSON] [--rows]
   -> {"model_id", "metrics": RoundMetrics, "rows"?: [{"listing_id", "label", "family", "attacker_knowledge", "decision"}]}
 
 Data comes from MongoDB ($MONGODB_URI, database $MONGODB_DB_REDTEAM). Holdout rows never live there; score them
@@ -13,7 +13,7 @@ from pathlib import Path
 
 from calhacks_contracts import GateDecision, GateInput, RoundMetrics, rate
 from calhacks_contracts.db import ReferenceSet, Repo, get_db
-from calhacks_contracts.families import REAL_FAMILY
+from calhacks_contracts.families import REAL_FAMILY, policy_bounded_families
 
 from gatepy import MODELS
 from gatepy.dataset import Example, GateInputError, featurize, from_items, load_examples, to_inputs
@@ -21,7 +21,6 @@ from gatepy.layer1_bridge import failed_rule, passed, run_layer1
 from gatepy.model_io import Model, load
 from gatepy.registry import discover, select
 from gatepy.sandbox import FeaturePolicyError
-from gatepy.splits import split_of
 
 
 def decide(model: Model, inputs: list[GateInput], l1=None) -> list[GateDecision]:
@@ -47,7 +46,10 @@ def decide(model: Model, inputs: list[GateInput], l1=None) -> list[GateDecision]
 
 def round_metrics(examples: list[Example], decisions: list[GateDecision]) -> RoundMetrics:
     pairs = list(zip(examples, decisions))
-    scam = [(e, d) for e, d in pairs if e.key.label == "scam"]
+    bounded_fams = policy_bounded_families()
+    # Policy-bounded families (no learnable signal; bounded by the unknown-seller cap) are reported apart.
+    scam = [(e, d) for e, d in pairs if e.key.label == "scam" and e.key.family not in bounded_fams]
+    bounded = [(e, d) for e, d in pairs if e.key.label == "scam" and e.key.family in bounded_fams]
     legit = [(e, d) for e, d in pairs if e.key.label == "legit"]
 
     def skip_rate(ps):
@@ -64,6 +66,7 @@ def round_metrics(examples: list[Example], decisions: list[GateDecision]) -> Rou
         recall=skip_rate(scam),
         fpr=skip_rate(legit),
         layer2_fpr=skip_rate([(e, d) for e, d in legit if d.decided_by != "layer1"]),
+        policy_bounded_recall=skip_rate(bounded) if bounded else None,
     )
 
 
@@ -98,14 +101,14 @@ def evaluate_repo(model_id: str, repo: Repo, split: str = "all", ids: list[str] 
         query["_id"] = {"$in": list(ids)}
     examples = load_examples(repo, query)
     if split != "all":
-        examples = [e for e in examples if split_of(e.id) == split]
+        examples = [e for e in examples if e.split == split]
     return evaluate_examples(model, examples, repo.reference_snapshot(), with_rows=with_rows)
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="gate-eval", description=__doc__, formatter_class=argparse.RawTextHelpFormatter)
     ap.add_argument("--model", default="promoted")
-    ap.add_argument("--split", choices=["train", "val", "all"], default="all")
+    ap.add_argument("--split", choices=["train", "calibrate", "val", "all"], default="all")
     ap.add_argument("--ids", type=Path, help="file with one listing_id per line")
     ap.add_argument("--query", help="JSON filter on the answer_keys collection")
     ap.add_argument("--rows", action="store_true")

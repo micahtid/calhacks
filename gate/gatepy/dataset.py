@@ -12,6 +12,7 @@ from calhacks_contracts.db import ReferenceSet, Repo
 from calhacks_contracts.families import holdout_families
 
 from gatepy.registry import Feature, compute
+from gatepy.splits import split_of
 
 DEFAULT_MAX_PRICE_FACTOR = 1.25
 DEFAULT_SPEND = 1000.0
@@ -30,6 +31,11 @@ class Example:
     @property
     def id(self) -> str:
         return self.listing.listing_id
+
+    @property
+    def split(self) -> str:
+        """train / calibrate / val, by group: every copy of one base listing lands on the same side."""
+        return split_of(self.id, self.key.base_listing_id)
 
 
 def default_case(listing: Listing) -> Case:
