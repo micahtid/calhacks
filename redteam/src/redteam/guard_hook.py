@@ -23,6 +23,7 @@ ALLOWED_EDIT = ("features/<name>.py", "train_config.yaml")
 EDITABLE = re.compile(r"^(features/[A-Za-z0-9_]+\.py|train_config\.yaml)$")
 DENY_TOOLS = {"Execute", "FetchUrl", "WebSearch", "Skill", "ConnectApp", "Bash", "PowerShell"}
 STRATEGIST = "attack-strategist"
+SEARCH_TOOLS = {"Grep", "Glob"}
 PATH_KEYS = {"file_path", "path", "directory_path", "dir", "cwd", "target_file", "notebook_path", "folder"}
 LIST_PATH_KEYS = {"paths", "file_paths", "files"}
 PATTERN_KEYS = {"glob_pattern", "pattern", "glob"}
@@ -91,6 +92,8 @@ def check(event: dict, root: Path) -> str | None:
             return f"path outside the coordinator workspace: {p}"
         if any("holdout" in part.lower() for part in r.split("/")):
             return "holdout data is off-limits"
+        if "tests" in r.split("/"):
+            return "test files are off-limits; read features/, gatepy/ or layer1/ instead"
     for pat in patterns:
         if ABS_PATH.search(pat) or PARENT_SEG.search(pat):
             return f"pattern reaches outside the workspace: {pat}"
@@ -100,6 +103,8 @@ def check(event: dict, root: Path) -> str | None:
                 if rel_inside(root, m) is None:
                     return f"reference outside the coordinator workspace: {m[:80]}"
 
+    if tool in SEARCH_TOOLS and not [p for p in paths if (rel_inside(root, p) or "") not in ("", ".")]:
+        return "search inside a folder (features/, gatepy/ or layer1/), not the whole workspace"
     if tool in EDIT_TOOLS:
         targets = paths or ["<unknown>"]
         for p in targets:

@@ -21,7 +21,7 @@ from calhacks_contracts import CoordinatorOutput, Cost, PromotionDecision, Round
 
 from redteam import gate_client, holdout, promotion, roundstate, store
 from redteam.config import (COORDINATOR_MODEL, DATA, FACTORY_SETTINGS, GATE_DIR, ROUND_WALL_SECONDS, STRATEGIST_DROID,
-                            holdout_families, round_dir, usd)
+                            round_dir, usd)
 
 COORD_TOKEN_BUDGET = 2_000_000
 COORD_PRICE_MODEL = {COORDINATOR_MODEL: "deepseek-ai/DeepSeek-V4.1-Flash"}
@@ -153,8 +153,8 @@ was first seen. A known wallet is trusted; an unknown wallet is paid only up to 
 
 You act only through the redteam tools (get_round_input, generate_attacks, score_round, inspect_failures,
 train_gate, eval_gate, promote_model) and the {STRATEGIST_DROID} subagent (Task tool, subagent_type
-"{STRATEGIST_DROID}"). There is no shell. Families {sorted(holdout_families())} are reserved for a sealed test and
-cannot be requested; do not try to find or read any holdout data.
+"{STRATEGIST_DROID}"). There is no shell. Only the attack families listed by get_round_input are available; do not
+try to find or read any holdout data.
 
 This round's RoundInput (built by code; call get_round_input for the full object):
 {brief}
@@ -187,6 +187,42 @@ def _guard_denials(session_id: str) -> list[dict]:
         except json.JSONDecodeError:
             continue
     return [{"tool": r["tool"], "why": r["why"]} for r in rows if r["decision"] == "deny" and r.get("session") == session_id]
+
+
+def record_audit(round_: int) -> dict:
+    """Artifact audit of this round's synthetic listings against real ones (redteam.audit). Families whose listings
+    can be told apart from real listings by traits the attack should not touch are recorded in the round doc."""
+    from redteam import audit
+    r = store.repo()
+    ids = store.listing_ids(r, rounds=[round_], include_real=False)
+    try:
+        res = audit.audit_repo(r, os.environ.get("GATE_AS_OF") or time.strftime("%Y-%m-%d"), ids)
+        out = {"failing": res["failing"], "n": len(ids),
+               "families": {k: {"auc": v["auc"], "p": v["p"], "n": v["n_pos"], "top": v["top_traits"][:1]}
+                            for k, v in list(res["families"].items()) + list(res["checks"].items())}}
+    except Exception as e:  # an audit problem must not lose the round
+        out = {"failing": None, "n": len(ids), "error": f"{type(e).__name__}: {e}"}
+    store.save_round(r, round_, audit=out)
+    return out
+
+
+def record_attack_success(round_: int, start_model: str | None) -> dict | None:
+    """The round's attack success, computed once by code: the share of this round's scam listings (policy-bounded
+    families excluded, as in recall) that the model promoted at the round's start let through."""
+    r = store.repo()
+    ids = store.listing_ids(r, rounds=[round_], include_real=False)
+    if not start_model or not ids:
+        store.save_round(r, round_, attack={"model_id": start_model, "attack_success": None, "n": len(ids)})
+        return None
+    m = gate_client.evaluate_as_trained(start_model, split="all", ids=ids)
+    if m.get("error"):
+        store.save_round(r, round_, attack={"model_id": start_model, "attack_success": None, "error": m["error"]})
+        return None
+    rec = m["metrics"]["recall"]
+    out = {"model_id": start_model, "attack_success": rate(rec["n"] - rec["k"], rec["n"]).model_dump(), "n": rec["n"],
+           "policy_bounded_recall": m["metrics"].get("policy_bounded_recall")}
+    store.save_round(r, round_, attack=out)
+    return out
 
 
 def assemble_report(round_: int, output: CoordinatorOutput | None, session_id: str | None,
@@ -229,10 +265,12 @@ async def run_round(round_: int, *, model: str, max_listings: int, resume: str |
     prompt = round_prompt(round_, allow_edits, max_listings, brief) if not resume else \
         "Continue this round from where you stopped, then produce your CoordinatorOutput."
     started = time.time()
+    start_model = promotion.current()["model_id"]  # the model this round's attacks are scored against
     async with session as s:
         # Written after the session: during it the MCP server owns the store (a local dry-run store is a set of files,
         # and an earlier write from this process would be overwritten by the server's, or overwrite them).
-        start_fields = {"session_id": s.id, "coordinator_model": model, "started": started, "resumed_from": resume}
+        start_fields = {"session_id": s.id, "coordinator_model": model, "started": started, "resumed_from": resume,
+                        "start_model": start_model}
         async with s.stream(prompt, output=CoordinatorOutput, timeout=timeout) as st:
             async for ev in st:
                 kind = type(ev).__name__
@@ -257,6 +295,8 @@ async def run_round(round_: int, *, model: str, max_listings: int, resume: str |
     output = result.output if isinstance(result.output, CoordinatorOutput) else None
     store.reload()  # pick up what the MCP server wrote (local dry runs)
     store.save_round(store.repo(), round_, **start_fields)
+    record_attack_success(round_, start_model)
+    record_audit(round_)
     report = assemble_report(round_, output, result.session_id, usage, model)
     store.save_round(store.repo(), round_, report=report.model_dump(mode="json"), usage=summary,
                      coordinator_text=None if output else (result.text or "")[-2000:])

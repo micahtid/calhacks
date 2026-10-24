@@ -54,7 +54,7 @@ def test_train_evaluate_promote_with_holdout(repo, fake_client, real):
     assert p["holdout_recorded"]
     state = json.loads((MODELS_DIR / "promoted.json").read_text())
     assert state["model_id"] == t["model_id"] and state["history"][-1]["round"] == 1
-    assert set(state["history"][-1]["holdout"]) == {"model_id", "recall", "fpr"}
+    assert set(state["history"][-1]["holdout"]) == {"model_id", "recall", "fpr", "layer2_fpr", "policy_bounded_recall"}
 
     ri = roundstate.build_round_input(2)
     RoundInput.model_validate(ri.model_dump())

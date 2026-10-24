@@ -42,10 +42,10 @@ def parse_spec(spec: dict | AttackSpec, *, allow_holdout: bool = False) -> Attac
         s = spec if isinstance(spec, AttackSpec) else AttackSpec.model_validate(spec)
     except ValidationError as e:
         raise SpecError(f"invalid AttackSpec: {e.errors()[:3]}") from None
-    if s.family != "legit_hard" and s.family not in families():
+    # A held-out family gets exactly the error a typo gets: the coordinator must not learn which families exist apart
+    # from the ones it is shown.
+    if (s.family != "legit_hard" and s.family not in families()) or             (s.family in holdout_families() and not allow_holdout):
         raise SpecError(f"unknown family {s.family!r}")
-    if s.family in holdout_families() and not allow_holdout:
-        raise SpecError(f"family {s.family!r} is reserved for the holdout")
     if s.family != "legit_hard" and families()[s.family]["label"] == "legit":
         raise SpecError("family must be an attack family or 'legit_hard'; honest listings come from legit_ratio")
     return s
@@ -94,7 +94,12 @@ def _apply_llm(m: mutate.Mutation, base: Listing, out: dict, task: str | None,
 
 def run_spec(spec: dict | AttackSpec, *, round_: int, r: Repo | None = None, client=None, write: bool = True,
              allow_holdout: bool = False, seed: int = 0, white_box: dict | None = None,
-             models: list[str] | None = None, token_budget: int = 10 ** 12, id_prefix: str = "S") -> dict:
+             models: list[str] | None = None, token_budget: int = 10 ** 12, id_prefix: str = "S",
+             base_use: Counter | None = None, max_per_base: int | None = None) -> dict:
+    """Generate one AttackSpec's listings.
+
+    base_use / max_per_base (the holdout): copies already made per base listing, shared across calls; each slot takes
+    one of the least-used eligible bases and no base gets more than max_per_base copies."""
     s = parse_spec(spec, allow_holdout=allow_holdout)
     r = r or store.repo()
     refs: ReferenceSet = r.reference_snapshot()
@@ -116,7 +121,16 @@ def run_spec(spec: dict | AttackSpec, *, round_: int, r: Repo | None = None, cli
             dropped.append({"listing_id": lid, "family": fam,
                             "why": "no base listing priced within unknown_seller_cap_usd"})
             continue
+        if base_use is not None:
+            pool = [b for b in pool if max_per_base is None or base_use[b.listing_id] < max_per_base]
+            if not pool:
+                dropped.append({"listing_id": lid, "family": fam, "why": f"every eligible base has {max_per_base} copies"})
+                continue
+            low = min(base_use[b.listing_id] for b in pool)
+            pool = [b for b in pool if base_use[b.listing_id] == low]  # spread over as many bases as possible
         base = rng.choice(pool)
+        if base_use is not None:
+            base_use[base.listing_id] += 1
         srng = random.Random(_seed(s.spec_id, seed, i))
         try:
             m = mutate.apply(fam, base, refs, srng, others)

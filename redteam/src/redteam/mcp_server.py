@@ -16,7 +16,6 @@ import os
 import time
 from collections import defaultdict
 
-from calhacks_contracts.families import holdout_families
 
 from redteam import gate_client, holdout, promotion, roundstate, scoring, store
 from redteam.config import BULK_MODELS, ROUND_BUDGET, legit_families, needs_llm, round_dir, scam_families
@@ -63,7 +62,7 @@ def get_round_input() -> dict:
     ri = roundstate.build_round_input(r)
     out = ri.model_dump(mode="json")
     out["_help"] = {"attack_families": scam_families(), "legit_families": legit_families(),
-                    "reserved_families": sorted(holdout_families()), "generator_models": BULK_MODELS,
+                    "generator_models": BULK_MODELS,
                     "generation_used": _budget(r), "real_listings": len(store.repo().real_listing_ids())}
     return _log("get_round_input", {}, out)
 
@@ -120,7 +119,8 @@ def generate_attacks(spec: dict) -> dict:
 
 
 def score_round(round: int | None = None) -> dict:
-    """Last promoted model vs. this round's fresh attacks: the red team's 'attack success' (before retraining)."""
+    """The promoted model vs. this round's fresh attacks so far (a working view for the coordinator; the round's
+    recorded attack success is computed once by code at the end of the round, with the model promoted at its start)."""
     r = current_round() if round is None else round
     model_id = promotion.current()["model_id"]
     if not model_id:
@@ -132,7 +132,6 @@ def score_round(round: int | None = None) -> dict:
     if m.get("error"):
         return _log("score_round", {"round": r}, m)
     m["attack_success"] = builtins.round(1 - m["metrics"]["recall"]["value"], 4)  # `round` is a tool parameter here
-    store.save_round(store.repo(), r, score=m)
     return _log("score_round", {"round": r}, m)
 
 

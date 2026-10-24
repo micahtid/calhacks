@@ -183,6 +183,30 @@
         },
         "fpr": {
           "$ref": "#/$defs/Rate"
+        },
+        "layer2_fpr": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "False blocks among legit rows that pass Layer 1"
+        },
+        "policy_bounded_recall": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Policy-bounded families, reported apart"
         }
       },
       "required": [

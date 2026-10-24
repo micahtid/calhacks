@@ -44,7 +44,13 @@ def train_some(repo, fake_client):
 def test_train_and_evaluate_shapes(repo, fake_client):
     out = train_some(repo, fake_client)
     assert "error" not in out, out
-    assert out["model_id"].startswith("r1-stub") and out["n_train"] > out["n_val"] > 0
+    assert out["model_id"].startswith("r1-stub") and out["n_train"] > 0 and out["n_val"] > 0
+    # grouped split: every copy of one base listing sits on the same side as its base
+    from calhacks_contracts.splits import split_of
+    by_base = {}
+    for k in repo.answer_keys():
+        by_base.setdefault(k.base_listing_id or k.listing_id, set()).add(split_of(k.listing_id, k.base_listing_id))
+    assert all(len(v) == 1 for v in by_base.values())
     RoundMetrics.model_validate(out["val"])
     ev = gate_stub.evaluate(out["model_id"], split="val", rows=True)
     RoundMetrics.model_validate(ev["metrics"])

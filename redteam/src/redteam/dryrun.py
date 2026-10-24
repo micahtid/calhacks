@@ -136,7 +136,7 @@ def _rate(m: dict | None, key: str):
 
 def summary(run: Path) -> dict:
     cfg = _apply_env(run)
-    from redteam import store
+    from redteam import holdout, store
     from redteam.config import HOLDOUT, HOLDOUT_MODEL, usd
     store.reload()
     r = store.repo()
@@ -145,22 +145,29 @@ def summary(run: Path) -> dict:
     hist = {h["model_id"]: h for h in promoted["history"]}
     rows = []
     for doc in store.all_rounds(r):
-        rep, score = doc.get("report") or {}, doc.get("score") or {}
+        rep, attack = doc.get("report") or {}, doc.get("attack") or {}
         promos = doc.get("promotions") or []
         kept = [p for p in promos if p.get("promoted")]
         last = kept[-1] if kept else (promos[-1] if promos else {})  # a round that kept a model reports that model
         m = last.get("candidate_val") or rep.get("metrics") or {}
         h = hist.get(last.get("model_id")) if last.get("promoted") else None
+        op = (holdout.history(last["model_id"]) or [None])[-1] if h else None  # operator-only holdout report
         diff = run / "diffs" / f"R{doc['_id']}.diff"
         rows.append({
             "round": doc["_id"],
-            "attack_success": score.get("attack_success"),
+            "attack_success": _rate(attack, "attack_success"), "attack_model": attack.get("model_id"),
+            "policy_bounded_recall": _rate(m, "policy_bounded_recall"),
             "recall": _rate(m, "recall"), "fpr": _rate(m, "fpr"), "fpr_real": _rate(m, "fpr_real"),
             "layer2_fpr": _rate(m, "layer2_fpr"),
             "layer2_recall": _rate(m, "layer2_recall"), "layer1_catches": m.get("layer1_catches"),
             "adaptive_recall": _rate(m, "adaptive_recall"),
             "holdout_recall": _rate((h or {}).get("holdout"), "recall"),
             "holdout_fpr": _rate((h or {}).get("holdout"), "fpr"),
+            "holdout_operator": None if not op else {
+                "layer2_fpr": _rate(op["totals"], "layer2_fpr"),
+                "policy_bounded_recall": _rate(op["totals"], "policy_bounded_recall"),
+                "recall_seen": _rate(op["groups"], "seen"), "recall_held_out": _rate(op["groups"], "held_out"),
+                "ci95_cluster": op["ci95_cluster"], "clusters": op["clusters"]},
             "decision": "kept" if kept else ("revert" if promos or rep else None),
             "reason": (last.get("decision") or rep.get("decision") or {}).get("reason"),
             "kept_models": [p["model_id"] for p in kept], "promotion_requests": len(promos),
@@ -168,6 +175,7 @@ def summary(run: Path) -> dict:
             "generation": doc.get("generation"), "cost": rep.get("cost"),
             "feature_changes": rep.get("feature_changes"), "session_id": doc.get("session_id"),
             "diff": str(diff) if diff.exists() and diff.stat().st_size else None,
+            "audit_failing": (doc.get("audit") or {}).get("failing"),
         })
     hold_meta = HOLDOUT / "holdout.v3.meta.json"
     hold = json.loads(hold_meta.read_text()) if hold_meta.exists() else None
@@ -192,17 +200,23 @@ def markdown(s: dict) -> str:
              f"known list: {'every real seller' if c['all_known'] else 'top reputable sellers'}",
              f"- Holdout: {s['holdout']['n'] if s['holdout'] else 0} listings, ${s['holdout_usd']:.4f}",
              f"- Total spend (estimate): **${s['spend_usd']:.4f}**",
-             "- Attack success = share of this round's attacks the previously promoted model let through, from the "
-             "round's last score_round call. Metrics are the kept model's (or the last candidate's) on validation.", "",
-             "| Round | Attack success | Recall | False blocks | False blocks (real) | L2 false blocks | L2 recall | "
-             "L1 catches | White-box recall | Holdout recall | Holdout false blocks | Decision | Cost |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "- Attack success = share of this round's scam listings that the model promoted at the round's start let "
+             "through, computed once by code at the end of the round (95% interval in brackets). Recall excludes "
+             "policy-bounded families (unknown_seller), reported apart. Metrics are the kept model's (or the last "
+             "candidate's) on validation.", "",
+             "| Round | Attack success | Recall | Policy-bounded recall | False blocks | False blocks (real) | "
+             "L2 false blocks | L2 recall | L1 catches | White-box recall | Holdout recall | Holdout false blocks | "
+             "Audit fails | Decision | Cost |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for x in s["rounds"]:
         a = x["attack_success"]
+        aud = x.get("audit_failing")
         lines.append(" | ".join([
-            f"| R{x['round']}", "—" if a is None else f"{a * 100:.1f}%", _pct(x["recall"]), _pct(x["fpr"]),
+            f"| R{x['round']}", "—" if a is None else f"{a['value'] * 100:.1f}% [{a['lo'] * 100:.0f}–{a['hi'] * 100:.0f}]",
+            _pct(x["recall"]), _pct(x["policy_bounded_recall"]), _pct(x["fpr"]),
             _pct(x["fpr_real"]), _pct(x["layer2_fpr"]), _pct(x["layer2_recall"]), str(x["layer1_catches"]), _pct(x["adaptive_recall"]),
-            _pct(x["holdout_recall"]), _pct(x["holdout_fpr"]), x["decision"] or "—",
+            _pct(x["holdout_recall"]), _pct(x["holdout_fpr"]),
+            "—" if aud is None else (", ".join(aud) or "none"), x["decision"] or "—",
             "—" if not x["cost"] else f"${x['cost']['usd']:.4f}"]) + " |")
     lines.append("")
     for x in s["rounds"]:
@@ -212,6 +226,17 @@ def markdown(s: dict) -> str:
         for fc in x["feature_changes"] or []:
             lines.append(f"- Feature {fc['action']}: `{fc['feature']}`: {fc['rationale']}")
         lines.append(f"- Diff: {x['diff'] or 'no feature edits'}")
+        op = x.get("holdout_operator")
+        if op:
+            ci = lambda k: "" if not op["ci95_cluster"].get(k) else                 f" [{op['ci95_cluster'][k][0] * 100:.0f}–{op['ci95_cluster'][k][1] * 100:.0f}]"
+            lines.append(f"- Holdout (operator only, 95% intervals clustered over {op['clusters']} base listings): "
+                         f"seen families {_pct(op['recall_seen'])}{ci('recall_seen')}, held-out families "
+                         f"{_pct(op['recall_held_out'])}{ci('recall_held_out')}, L2 false blocks "
+                         f"{_pct(op['layer2_fpr'])}{ci('layer2_fpr')}, policy-bounded "
+                         f"{_pct(op['policy_bounded_recall'])}{ci('policy_bounded_recall')}")
+        if x.get("audit_failing"):
+            lines.append(f"- Audit: **{', '.join(x['audit_failing'])}** can be told apart from real listings by "
+                         f"traits the attack should not touch; treat this round's numbers for them with care")
         lines.append("")
     return "\n".join(lines)
 

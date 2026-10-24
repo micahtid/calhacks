@@ -11,9 +11,10 @@ SPEC = {"spec_id": "S-pi", "family": "prompt_injection", "n": 20, "legit_ratio":
 
 
 def test_spec_rejects_holdout_unknown_and_legit_families():
-    for fam in ("urgency_pressure", "lookalike_domain"):
-        with pytest.raises(SpecError, match="holdout"):
+    for fam in ("urgency_pressure", "lookalike_domain", "no_such_family"):
+        with pytest.raises(SpecError) as e:  # held-out families get exactly the typo error
             parse_spec({**SPEC, "family": fam})
+        assert str(e.value) == f"unknown family {fam!r}"
     with pytest.raises(SpecError):
         parse_spec({**SPEC, "family": "legit_plain"})
     with pytest.raises(SpecError):

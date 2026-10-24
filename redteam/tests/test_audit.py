@@ -58,3 +58,23 @@ def test_planted_name_artifact_is_flagged_and_clean_copies_pass(tmp_path):
 def test_touched_traits_are_excluded():
     assert "text" in audit.TOUCHES["hidden_text"] and "wallet" in audit.TOUCHES["unknown_seller"]
     assert "name" not in audit.TOUCHES["unknown_seller"]  # new sellers must still look real
+
+
+def test_round_audit_from_a_repo_flags_planted_artifacts(monkeypatch, repo):
+    """After a round, code audits that round's synthetic listings against real ones (from the Repo, not files)."""
+    from redteam import coordinator, store
+    from redteam.generate import run_spec
+    monkeypatch.setenv("GATE_AS_OF", "2026-10-24")
+    run_spec({"spec_id": "S-clean", "family": "payment_mismatch", "n": 40, "legit_ratio": 0, "mode": "mutate_real"},
+             round_=1, r=repo, client=None)
+    run_spec({"spec_id": "S-dirty", "family": "too_cheap", "n": 40, "legit_ratio": 0, "mode": "mutate_real"},
+             round_=2, r=repo, client=None)
+    # plant a tell in round 2: a generated-looking seller name and padded text, on fields too_cheap never touches
+    for k in repo.answer_keys({"family": "too_cheap"}):
+        repo.db.listings.update_one({"_id": k.listing_id}, [{"$set": {
+            "seller.id": "seller:qwertyuiop4821", "item.text": {"$concat": ["$item.text", "\n\n\n" + "x " * 400]}}}])
+    clean = coordinator.record_audit(1)
+    dirty = coordinator.record_audit(2)
+    assert clean["failing"] == [] and clean["n"] >= 15
+    assert "too_cheap" in dirty["failing"] and "payment_mismatch" not in dirty["families"]  # only round 2's rows
+    assert store.get_round(repo, 2)["audit"]["failing"] == dirty["failing"]

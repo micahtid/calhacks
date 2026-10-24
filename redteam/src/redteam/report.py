@@ -32,7 +32,7 @@ def rows() -> list[dict]:
         usage = doc.get("usage") or {}
         out.append({
             "round": doc["_id"],
-            "attack_success": (doc.get("score") or {}).get("attack_success"),
+            "attack_success": ((doc.get("attack") or {}).get("attack_success") or {}).get("value"),
             "candidate": promos[-1]["model_id"] if promos else None,
             "decision": (rep.get("decision") or {}).get("action"),
             "val_recall": _v(m.get("recall")),

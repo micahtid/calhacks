@@ -2,6 +2,8 @@
 
   uv run --project redteam python -m redteam.audit --store <local store dir> [--json out.json]
 
+The coordinator also runs it after every round on that round's synthetic listings (audit_repo, ids=...).
+
 For every family with enough rows, a small classifier tries to separate that family's listings from real listings,
 using only "untouched" traits: features derived from fields the family's attack is not supposed to change. Real
 listings are restricted to those that can reach Layer 2 (known wallet, or unknown wallet within the cap), the same
@@ -16,6 +18,7 @@ import json
 import re
 import sys
 from collections import defaultdict
+from collections.abc import Iterable
 from pathlib import Path
 
 import numpy as np
@@ -105,12 +108,26 @@ def compare(pos: list[dict], neg: list[dict], cols: list[str], groups_pos: list[
 
 
 def audit(store_dir: Path, as_of: str) -> dict:
+    """Audit a local store directory (one JSONL file per collection)."""
     rd = lambda name: [json.loads(l) for l in (store_dir / f"{name}.jsonl").read_text(encoding="utf-8").splitlines()
                        if l.strip()] if (store_dir / f"{name}.jsonl").exists() else []  # e.g. no wallet history
+    return _audit(rd, as_of)
+
+
+def audit_repo(r, as_of: str, ids: Iterable[str] | None = None) -> dict:
+    """Audit a Repo (Mongo, mongomock or a loaded local store). With ids, only those synthetic listings are audited
+    (e.g. one round's); real listings always come from the whole store."""
+    keep = None if ids is None else set(ids)
+    rd = lambda name: list(r.db[name].find())
+    return _audit(rd, as_of, keep)
+
+
+def _audit(rd, as_of: str, keep: set[str] | None = None) -> dict:
     listings = {d["_id"]: d for d in rd("listings")}
-    keys = {d["_id"]: d for d in rd("answer_keys")}
+    keys = {d["_id"]: d for d in rd("answer_keys")
+            if keep is None or d["family"] == "real" or d["_id"] in keep}
     wallets = {d["_id"]: d.get("first_seen") for d in rd("wallets")}
-    gen = {d["_id"]: d for d in rd("gen")} if (store_dir / "gen.jsonl").exists() else {}
+    gen = {d["_id"]: d for d in rd("gen")}
     known = {d["pay_to"].lower() for d in rd("known_sellers")}
     cap = allowlist()["unknown_seller_cap_usd"]
     t = {lid: traits(l, wallets, as_of) for lid, l in listings.items() if lid in keys}

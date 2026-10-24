@@ -160,7 +160,18 @@ def listing_ids(r: Repo, *, rounds: Iterable[int] | None = None, include_real: b
     ids.update(d["_id"] for d in r.db.gen.find(q, {"_id": 1}))
     if include_real:
         ids.update(r.real_listing_ids())
-    return sorted(i for i in ids if split == "all" or split_of(i) == split)
+    if split == "all":
+        return sorted(ids)
+    splits = split_map(r, ids)
+    return sorted(i for i in ids if splits[i] == split)
+
+
+def split_map(r: Repo, ids: Iterable[str]) -> dict[str, str]:
+    """listing id -> train/calibrate/val, grouped by base listing (a synthetic row goes with its real base)."""
+    ids = list(ids)
+    base = {d["_id"]: d.get("base_listing_id") for d in r.db.answer_keys.find({"_id": {"$in": ids}},
+                                                                             {"base_listing_id": 1})}
+    return {i: split_of(i, base.get(i)) for i in ids}
 
 
 def items(r: Repo, ids: list[str]) -> list[tuple[Listing, Case, AnswerKey]]:
@@ -172,4 +183,7 @@ def items(r: Repo, ids: list[str]) -> list[tuple[Listing, Case, AnswerKey]]:
 
 
 def coverage(r: Repo) -> dict[str, int]:
-    return dict(sorted(Counter(d["family"] for d in r.db.answer_keys.find({}, {"family": 1})).items()))
+    from calhacks_contracts.families import holdout_families
+    held = holdout_families()  # never in the shared store anyway; filtered so the coordinator can't see the names
+    return dict(sorted(Counter(d["family"] for d in r.db.answer_keys.find({}, {"family": 1})
+                               if d["family"] not in held).items()))

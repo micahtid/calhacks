@@ -393,11 +393,17 @@ listings live in MongoDB through `calhacks-contracts`; nothing is read from loca
   - a $500 budget per case
   - a seller-level split: ~80% training bases, ~20% locked-test bases reserved for the holdout
   `uv run --project redteam python -m redteam.scrape_map --out <dir> --as-of YYYY-MM-DD`
+- **Benchmark** (`redteam.bench`): a fixed clean test set built from the snapshot's locked-test listings
+  (`bench build-test`), and `bench run` to score a Gate on it: accuracy, recall, false blocks split into model and
+  policy blocks, real-listing false blocks, risk AUC, held-out and policy-bounded recall reported apart, each with a
+  95% cluster-bootstrap interval over base listings.
 - **Artifact audit** (`redteam.audit`): checks whether generated listings can be told apart from real ones by
   anything other than the attack. Per family, a classifier on untouched traits (seller-name shape, wallet age,
   review count and length, text length) reports a grouped-CV AUC and a permutation p-value; a family fails when
   AUC > 0.6 and p < 0.05 (a tell the Gate could learn instead of the scam). Each family is compared with the real
-  listings it draws bases from. `uv run --project redteam python -m redteam.audit --store <local store dir>`
+  listings it draws bases from. The coordinator also runs it on each round's listings after the round and records the
+  failing families in the round (shown in the dry-run summary).
+  `uv run --project redteam python -m redteam.audit --store <local store dir>`
 - **Local dry runs** (`redteam.dryrun`): the full loop against a snapshot with no MongoDB. A file-backed store
   (`REDTEAM_LOCAL_STORE`) is shared between the coordinator and the MCP server and saved after every tool call. The
   holdout is built from the snapshot's locked-test listings (including those real listings, unmodified).
@@ -422,8 +428,19 @@ listings live in MongoDB through `calhacks-contracts`; nothing is read from loca
   fake reviews, urgency, mixed reviews) get their text or reviews rewritten by Bitdeer (GLM-5.3-Flash and
   DeepSeek-V4.1-Flash in rotation). Bad LLM output is retried once, then dropped, and drops are counted per family.
 - **Holdout** (`redteam.holdout`): built once from the real listings, holding the two held-out families plus a slice
-  of every other family, with text written by Nemotron. It's stored encrypted outside the repo with its simulated
-  references, never in MongoDB, and scored in memory to totals only.
+  of every other family, with text written by Nemotron. No base listing gets more than 3 copies (spread over as many
+  bases as there are); dropped LLM slots are re-requested a few times and any shortfall is recorded. It's stored
+  encrypted outside the repo with its simulated references, never in MongoDB, and scored in memory to totals only. The
+  coordinator sees recall and false blocks; the operator also gets Layer 2 false blocks, policy-bounded recall, recall
+  on seen vs held-out families and 95% intervals from a bootstrap clustered by base listing
+  (`holdout.v3.history.jsonl`, next to the holdout).
+- **Honest measurement:** every split is by base listing (`calhacks_contracts.splits`: train 70%, calibrate 10% for
+  the threshold, validation 20%), so copies of one listing never sit on both sides. Recall leaves out policy-bounded
+  families (`unknown_seller`, capped by the $100 rule rather than detected) and reports them as policy-bounded recall.
+  The coordinator never sees the held-out family names: they are not in its prompt, tools or coverage, asking for one
+  gets the same "unknown family" error as a typo, and the guard hook blocks reading tests and whole-workspace searches.
+  Attack success is recorded once per round by code: this round's scams scored with the model promoted at the round's
+  start (with a 95% interval); `score_round` is only a working view.
 - **Coordinator** (`redteam.coordinator`): one Factory Droid SDK session per round on Bitdeer DeepSeek-V4.1-Flash, with
   a GLM-5.3 attack-strategist droid. It sees the world only through the stdio MCP tools (`get_round_input`,
   `generate_attacks`, `score_round`, `inspect_failures`, `train_gate`, `eval_gate`, `promote_model`). A guard hook

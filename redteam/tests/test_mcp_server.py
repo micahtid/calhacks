@@ -22,7 +22,7 @@ def test_round_flow_in_process(round1, fake_client, monkeypatch):
     from redteam import bitdeer
     monkeypatch.setattr(bitdeer, "make_client", lambda: fake_client())
     held = mcp_server.generate_attacks({"family": "lookalike_domain", "n": 5})
-    assert "reserved for the holdout" in held["error"]
+    assert held["error"] == "unknown family 'lookalike_domain'"
     bad = mcp_server.generate_attacks({"family": "too_cheap"})
     assert "invalid AttackSpec" in bad["error"]
     for fam in ("too_cheap", "payment_mismatch", "prompt_injection"):
@@ -93,7 +93,7 @@ def test_stdio_server(tmp_path, repo, fake_client):
 
     tools, held, gen, gen2, train, ri, promo = asyncio.run(go())
     assert {"get_round_input", "generate_attacks", "promote_model", "eval_gate"} <= set(tools)
-    assert "reserved" in held["error"]
+    assert held["error"] == "unknown family 'urgency_pressure'"
     assert gen["kept"] > 0 and gen["drops_by_family"].get("legit_mixed_reviews", 0) >= 0
     assert train["model_id"].startswith("r1-stub"), train
     assert ri["round"] == 1 and "attack_families" in ri["_help"]

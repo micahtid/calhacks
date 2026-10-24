@@ -28,22 +28,32 @@ All commands run from the repo root. Real listings must be in MongoDB first (`co
 
 - **MongoDB** (`redteam` database): synthetic `listings` + `answer_keys` + `gen` + `cases` (via `Repo.put_synthetic`),
   simulated `wallets` (first-seen dates) for generated sellers, `specs` (each AttackSpec, its
-  round and summary) and `rounds` (generation spend, score, promotions, the RoundReport, coordinator usage).
+  round and summary) and `rounds` (generation spend, `start_model`, `attack` (attack success with its interval),
+  `audit` (failing families), promotions, the RoundReport, coordinator usage).
 - **`gate/models/`**: model files and `promoted.json` (history includes the holdout totals recorded on promotion).
 - **`data/rounds/R{n}/`**: local logs only: `calls.jsonl` (every MCP call), `usage.json`, `events.jsonl`, `report.json`.
-- **`$CALHACKS_HOLDOUT`** (default `../calhacks-holdout/`): `holdout.v2.enc` (listings, answer keys, cases and their
-  simulated references, encrypted), `holdout.key`, `holdout.v2.meta.json` (counts only). Never in MongoDB.
+- **`$CALHACKS_HOLDOUT`** (default `../calhacks-holdout/`): `holdout.v3.enc` (listings, answer keys, cases and their
+  simulated references, encrypted), `holdout.key`, `holdout.v3.meta.json` (counts, bases used, copies per base,
+  shortfall), `holdout.v3.history.jsonl` (operator-only report per scored model: totals, seen vs held-out recall,
+  clustered intervals). Never in MongoDB, never readable by the coordinator.
 
 ## How a round works
 
 1. `coordinator.py` builds the round's `RoundInput` in code (current model, last report, coverage, validation misses,
-   holdout totals for the current model, feature list) and puts it in the prompt.
+   holdout totals for the current model, feature list) and puts it in the prompt. It notes the promoted model as the
+   round's start model. Held-out family names appear nowhere the coordinator can read (`tests/test_hidden_families.py`).
 2. The coordinator orders `AttackSpec`s through `generate_attacks`. The main mode, `mutate_real`, copies real listings and
    changes one thing in code; LLM families get their text rewritten by Bitdeer.
-3. `score_round` scores fresh attacks against last round's model (attack success). `inspect_failures` shows the misses.
+3. `score_round` scores fresh attacks against the promoted model (a working view). `inspect_failures` shows the misses.
 4. It edits `gate/features/<name>.py` (real Gate only; files must pass `gatepy.sandbox`), runs `train_gate`, then `promote_model`. Code applies C6 and, on
    refusal, restores the promoted model's feature code.
-5. It returns a `CoordinatorOutput`. Code assembles the `RoundReport` (metrics, decision, cost) and saves it to MongoDB.
+5. It returns a `CoordinatorOutput`. Code then records attack success (this round's scams vs the start model, scored
+   with that model's own feature code, policy-bounded families left out), audits this round's listings against real
+   ones (`redteam.audit`), assembles the `RoundReport` (metrics, decision, cost) and saves it all to MongoDB.
+
+Splits are by base listing (`calhacks_contracts.splits.split_of(id, base_listing_id)`): train 70%, calibrate 10%
+(threshold only), validation 20%. Recall excludes policy-bounded families (`unknown_seller`), which are reported as
+`policy_bounded_recall`; promotion compares recall without them.
 
 ## Gate backend
 

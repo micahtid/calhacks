@@ -107,11 +107,35 @@ def test_local_round_flow_and_summary(tmp_path, snapshot, monkeypatch, fake_clie
     assert "error" not in t, t
     p = tool["promote_model"](t["model_id"])
     assert "decision" in p
-    s = tool["score_round"]()
-    assert "attack_success" in s
+    s = tool["score_round"]()  # a working view; errors if the small candidate was refused (threshold from calibrate)
+    assert "attack_success" in s or "no promoted model" in s.get("error", "")
+    assert "attack" not in (store.get_round(store.repo(), 1) or {})  # the tool no longer records the number
+    from redteam import coordinator
+    rec = coordinator.record_attack_success(1, t["model_id"])  # what run_round does once the session ends
+    store.flush()
+    assert rec and 0 <= rec["attack_success"]["lo"] <= rec["attack_success"]["value"] <= rec["attack_success"]["hi"]
     # everything above was flushed to disk after each tool call; a fresh process sees it
     out = json.loads(run_py(f"from redteam import dryrun; from pathlib import Path; import json; "
                             f"s = dryrun.summary(Path(r'{run}')); print(json.dumps(s['rounds'], default=str))", {}))
     assert out and out[0]["round"] == 1 and out[0]["attack_success"] is not None
     assert (run / "summary.md").read_text().startswith("# Dry run")
     store.set_repo(None)
+
+
+def test_summary_markdown_shows_recorded_measures():
+    from redteam import dryrun
+    r8 = lambda v, n=50: {"value": v, "lo": max(0, v - .1), "hi": min(1, v + .1), "n": n}
+    row = {"round": 2, "attack_success": r8(0.4), "attack_model": "m1", "policy_bounded_recall": r8(0.05, 20),
+           "recall": r8(0.8), "fpr": r8(0.1), "fpr_real": r8(0.1), "layer2_fpr": r8(0.02), "layer2_recall": r8(0.7),
+           "layer1_catches": 9, "adaptive_recall": None, "holdout_recall": r8(0.6), "holdout_fpr": r8(0.1),
+           "audit_failing": ["too_cheap"], "decision": "kept", "reason": "ok", "kept_models": ["m2"],
+           "promotion_requests": 1, "feature_changes": [], "diff": None, "cost": {"usd": 0.1},
+           "holdout_operator": {"layer2_fpr": r8(0.01), "policy_bounded_recall": r8(0.1),
+                                "recall_seen": r8(0.7), "recall_held_out": r8(0.2),
+                                "ci95_cluster": {"recall_seen": [0.6, 0.8], "recall_held_out": [0.1, 0.35]},
+                                "clusters": 40}}
+    md = dryrun.markdown({"run": "x", "config": {"snapshot": "s", "as_of": "2026-10-24", "seed": 1,
+                                                 "all_known": False}, "holdout": None, "holdout_usd": 0,
+                          "spend_usd": 0.1, "rounds": [row]})
+    assert "40.0% [30–50]" in md and "Policy-bounded recall" in md and "| too_cheap |" in md
+    assert "**too_cheap**" in md and "held-out families 20.0% (n=50) [10–35]" in md

@@ -148,6 +148,26 @@ def restore_features(model_id: str) -> None:
     gate_restore(model_id, models_dir=MODELS_DIR)
 
 
+def evaluate_as_trained(model_id: str, split: str = "all", ids: list[str] | None = None,
+                        rows: bool = False) -> dict:
+    """evaluate() with the model's own feature code, even if the coordinator has edited gate/features since.
+
+    The current feature files are snapshotted, the model's are restored for the call, then the snapshot is put back."""
+    if GATE_BACKEND == "stub":
+        return evaluate(model_id, split, ids, rows)
+    feat_dir, cfg = GATE_DIR / "features", GATE_DIR / "train_config.yaml"
+    snap = {p: p.read_bytes() for p in [*feat_dir.glob("*.py"), cfg] if p.exists()}
+    try:
+        restore_features(model_id)
+        return evaluate(model_id, split, ids, rows)
+    finally:
+        for p in feat_dir.glob("*.py"):
+            if p not in snap:
+                p.unlink()
+        for p, b in snap.items():
+            p.write_bytes(b)
+
+
 def preload() -> None:
     """Import the real Gate (numpy, LightGBM, scikit-learn) on the calling thread.
 

@@ -4,7 +4,7 @@ import json
 import pytest
 from calhacks_contracts import CoordinatorOutput, FailureCluster, FeatureChange, RoundReport
 
-from redteam import coordinator, holdout, mcp_server
+from redteam import coordinator, holdout, mcp_server, store
 
 
 @pytest.fixture
@@ -26,7 +26,7 @@ def test_prompt_carries_round_input_and_rules(promoted_round):
     assert ri["current_model_id"] == model_id and ri["feature_list"]
     assert all(len(m["listing"]["item"]["text"]) <= 300 for m in ri["misses"])
     p = coordinator.round_prompt(1, allow_edits=False, max_listings=60, brief=brief)
-    assert brief in p and "lookalike_domain" in p and "urgency_pressure" in p
+    assert brief in p and "lookalike_domain" not in p and "urgency_pressure" not in p
     assert "CoordinatorOutput" in p and "Feature editing is disabled" in p
     assert "from gatepy.registry import feature" in coordinator.round_prompt(1, True, 60, brief)
 
@@ -59,3 +59,21 @@ def test_holdout_key_only_reaches_the_mcp_server(monkeypatch, repo, fake_client)
     cfg = coordinator.mcp_server(1, 60)
     assert cfg.env["HOLDOUT_KEY"] == holdout.key_for_mcp_env()
     assert cfg.env["REDTEAM_MAX_LISTINGS"] == "60" and cfg.env["REDTEAM_ROUND"] == "1"
+
+
+def test_attack_success_uses_the_start_model_once(promoted_round, monkeypatch):
+    """Code records the round's attack success with the model promoted at the round's start, whatever the coordinator
+    promoted (or scored) later in the round."""
+    repo, start = promoted_round
+    calls = []
+    real = coordinator.gate_client.evaluate_as_trained
+    monkeypatch.setattr(coordinator.gate_client, "evaluate_as_trained",
+                        lambda m, **k: calls.append(m) or real(m, **k))
+    out = coordinator.record_attack_success(1, start)
+    assert calls == [start] and out["model_id"] == start
+    a = out["attack_success"]
+    assert a["lo"] <= a["value"] <= a["hi"] and out["n"] == a["n"] > 0
+    assert store.get_round(repo, 1)["attack"]["attack_success"]["value"] == a["value"]
+    # no start model (round 1 of a fresh run): recorded as unknown, not crashed
+    assert coordinator.record_attack_success(1, None) is None
+    assert store.get_round(repo, 1)["attack"]["attack_success"] is None

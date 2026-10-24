@@ -57,6 +57,8 @@ class HoldoutTotals(Strict):
     model_id: str
     recall: Rate
     fpr: Rate
+    layer2_fpr: Rate | None = Field(default=None, description="False blocks among legit rows that pass Layer 1")
+    policy_bounded_recall: Rate | None = Field(default=None, description="Policy-bounded families, reported apart")
 
 
 class Miss(Strict):
