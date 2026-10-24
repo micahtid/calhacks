@@ -1,0 +1,21 @@
+{
+  "name": "calhacks",
+  "private": true,
+  "workspaces": [
+    "apps/store-a",
+    "apps/store-b",
+    "apps/store-c"
+  ],
+  "scripts": {
+    "dev": "concurrently -n agent,store-a,store-b,store-c \"npm run dev:agent\" \"npm run dev:store-a\" \"npm run dev:store-b\" \"npm run dev:store-c\"",
+    "dev:agent": "cd apps/agent && uv run fastapi dev app/main.py --port 8000",
+    "dev:store-a": "npm run dev -w store-a",
+    "dev:store-b": "npm run dev -w store-b",
+    "dev:store-c": "npm run dev -w store-c",
+    "build": "npm run build --workspaces",
+    "lint": "npm run lint --workspaces"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
