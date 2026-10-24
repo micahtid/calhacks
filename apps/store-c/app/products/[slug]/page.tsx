@@ -19,7 +19,7 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: PageProps<"/products/[slug]">): Promise<Metadata> {
   const item = await getItem((await params).slug);
-  return { title: item ? `${item.title} | Depop` : "Depop" };
+  return { title: item ? `${item.title} | dpp` : "dpp" };
 }
 
 export default async function ProductPage({ params }: PageProps<"/products/[slug]">) {
@@ -89,7 +89,7 @@ export default async function ProductPage({ params }: PageProps<"/products/[slug
               <div>
                 <Shield />
                 <p>
-                  All purchases through Depop are covered by Buyer Protection. <u>Learn More</u>
+                  All purchases through dpp are covered by Buyer Protection. <u>Learn More</u>
                 </p>
               </div>
               <div>

@@ -25,7 +25,7 @@ export default function Header({ categories = true }: { categories?: boolean }) 
             Watchlist <Chevron />
           </span>
           <span>
-            My eBay <Chevron />
+            My by <Chevron />
           </span>
           <span className="gh-icon">
             <Bell />
@@ -67,7 +67,7 @@ export default function Header({ categories = true }: { categories?: boolean }) 
       {categories && (
         <nav className="gh-cats">
           <span className="gh-live">
-            <i /> eBay Live
+            <i /> by Live
           </span>
           {CATEGORIES.map((category) => (
             <span key={category}>{category}</span>

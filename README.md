@@ -194,10 +194,15 @@ Visa, Hyphenate, Coinbase x402 (payment protocol), Apify (real listings), Factor
 
 ```
 apps/
-  agent/     Python FastAPI shopping agent backend (uv, Python 3.13), port 8000
-  store-a/   Next.js 16 storefront, port 3001
-  store-b/   Next.js 16 storefront
-  store-c/   Next.js 16 storefront
+  agent/api/ Python FastAPI shopping agent backend (uv, Python 3.13), port 8000
+  agent/web/ Next.js agent dashboard, port 3000
+  store-a/   mzn, a general store (Next.js 16), port 3001
+  store-b/   by, an auction marketplace, port 3002
+  store-c/   dpp, a resale app, port 3003
+  store-d/   mzn Official Outlet, a scam lookalike of mzn, port 3004
+packages/
+  common/    Shared store code: MongoDB listings, x402 checkout, highlights, page shell
+  amazon/    Shared storefront used by mzn and its scam lookalike
 contracts/   Shared schemas (issue #1), MongoDB access and ingestion CLI (uv package calhacks-contracts)
 docs/plans/  Red-team loop + Gate implementation plan
 package.json npm workspaces for the stores + root dev scripts
@@ -209,11 +214,11 @@ Requires Node.js and [uv](https://docs.astral.sh/uv/).
 
 ```sh
 npm install
-npm run dev          # agent + all three stores via concurrently
-npm run dev:agent    # agent only (http://localhost:8000, GET /health)
-npm run dev:store-a  # one store
-npm run build        # build all stores
-npm run lint         # lint all stores
+npm run dev            # agent API, agent dashboard, and all four stores via concurrently
+npm run dev:agent-api  # agent API only (http://localhost:8000, GET /health)
+npm run dev:store-a    # one store
+npm run build          # build every workspace
+npm run lint           # lint every workspace
 ```
 
 ## Implementation status
@@ -223,8 +228,9 @@ Keep this section current (see `AGENTS.md`).
 - [x] Monorepo scaffold: FastAPI agent with `/health`, three default Next.js store apps
 - [x] Shared schemas from issue #1 (`Listing`, `SyntheticListing`, `AttackSpec`, `RoundInput`, `RoundReport`, `GateRequest`, `GateDecision`) as pydantic + TypeScript, with MongoDB repository and ingestion CLI
 - [ ] Real listings, known sellers and market medians ingested into MongoDB
-- [ ] Storefront API (`store.json`, catalog, items, x402 checkout) in each store
-- [ ] Scam storefront variants (lookalike domain/wallet, too cheap, prompt injection, fake reviews, unverified seller)
+- [x] Storefront API (`store.json`, catalog, x402 checkout) in each store, with listings and highlights loaded from MongoDB
+- [x] Store names and logos use the real names with the vowels removed (mzn, by, dpp)
+- [x] Scam storefront (mzn Official Outlet: lookalike brand, too cheap, prompt injection, fake reviews)
 - [ ] Apify listing ingestion
 - [ ] Scout (Claude) agent loop
 - [x] Gate Layer 1: fixed TypeScript rules over the issue #1 `GateInput`

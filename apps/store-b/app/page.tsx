@@ -83,7 +83,7 @@ export default async function Home() {
         <section className="banner">
           <div>
             <h2>Shop With Confidence</h2>
-            <p>Get the item you ordered or your money back with the eBay Money Back Guarantee.</p>
+            <p>Get the item you ordered or your money back with the by Money Back Guarantee.</p>
           </div>
           <span className="banner-btn">Learn More</span>
         </section>

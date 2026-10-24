@@ -17,7 +17,7 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: PageProps<"/itm/[itemNumber]">): Promise<Metadata> {
   const item = await getItem((await params).itemNumber);
-  return { title: item ? `${item.title} | eBay` : "eBay" };
+  return { title: item ? `${item.title} | by` : "by" };
 }
 
 const THUMBS = 7;
@@ -227,7 +227,7 @@ export default async function ItemPage({ params }: PageProps<"/itm/[itemNumber]"
                 ✓
               </span>
               <div>
-                <b>eBay Money Back Guarantee</b>
+                <b>by Money Back Guarantee</b>
                 <p className="muted">Get the item you ordered or your money back.</p>
               </div>
             </div>
@@ -257,7 +257,7 @@ export default async function ItemPage({ params }: PageProps<"/itm/[itemNumber]"
             <div className="about-meta">
               <span className="muted">Seller assumes all responsibility for this listing.</span>
               <span className="muted">
-                eBay Item Number: <b>{item.itemNumber}</b>
+                by Item Number: <b>{item.itemNumber}</b>
               </span>
             </div>
             <h2>Item Specifics</h2>
