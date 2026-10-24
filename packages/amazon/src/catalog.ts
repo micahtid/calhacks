@@ -20,6 +20,7 @@ export async function itemMetadata(store: Store, id: string): Promise<Metadata> 
 export function merchantOf(store: Store): Merchant {
   return {
     name: store.company,
+    marketplace: "amazon",
     listings: async () =>
       (await itemsOf(store)).map((item) => ({ key: item.id, title: item.title, price: item.price, inStock: item.stock > 0, seller: item.soldBy, path: itemPath(item) })),
   };

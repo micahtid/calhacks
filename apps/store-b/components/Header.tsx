@@ -5,7 +5,7 @@ import { Bell, Cart, Search } from "./Icons";
 
 const CATEGORIES = ["Saved", "Motors", "Electronics", "Collectibles", "Home and Garden", "Clothing, Shoes and Accessories", "Toys", "Sporting Goods", "Business and Industrial", "Jewelry and Watches", "Refurbished"];
 
-export default function Header({ categories = true }: { categories?: boolean }) {
+export default function Header({ categories = true, query }: { categories?: boolean; query?: string }) {
   return (
     <header className="gh">
       <div className="gh-top">
@@ -45,12 +45,12 @@ export default function Header({ categories = true }: { categories?: boolean }) 
           Category
           <Chevron />
         </span>
-        <form className="gh-search" action="/" role="search">
+        <form className="gh-search" action="/sch" role="search">
           <div className="gh-search-box">
             <span className="gh-search-icon">
               <Search />
             </span>
-            <input type="text" name="_nkw" placeholder="Search for Anything" aria-label="Search for Anything" />
+            <input type="text" name="_nkw" defaultValue={query} placeholder="Search for Anything" aria-label="Search for Anything" />
             <span className="gh-camera">
               <Camera />
             </span>

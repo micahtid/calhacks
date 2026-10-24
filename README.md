@@ -67,8 +67,11 @@ Each storefront is agent-facing: no accounts, payment is the authorization. Refe
 |---|---|---|
 | GET | `/.well-known/store.json` | Store metadata: name, seller ID, `payTo` wallet, network, price range, rating, endpoint paths |
 | GET | `/api/catalog` | All listings with price and stock |
+| GET | `/api/catalog?q=fleece` | The 40 listings closest to the query, best first (Atlas Vector Search), so an agent crawls only what the shopper asked for |
 | GET | `/api/items/{id}` | One listing with description, rating, reviews |
 | POST | `/api/checkout/{id}` | Buy one item, paid via x402 |
+
+Each storefront also has a human-facing search page whose query lives in the URL, so a search can be shared or revisited: mzn and its lookalike use `/s?k=`, by uses `/sch?_nkw=`, dpp uses `/search?q=`. Search is semantic: an Atlas Vector Search index with automated embedding (`listings_title_vector`, Voyage `voyage-4`) embeds every listing title and the query, so "warm jacket" also finds fleeces and parkas. Each store gets the 40 closest titles from its own marketplace, and results for a query are cached for hours. Create the index once per cluster with `node scripts/create-vector-index.mjs` (billed per embedded token; the cluster needs storage autoscaling if it is M10 or larger).
 
 ### Checkout flow
 
@@ -127,7 +130,7 @@ Browser (Vercel)  <- SSE -  agent API (Railway, FastAPI)  <- NDJSON -  store-cra
   - Events: `listing` (catalog fields + absolute `url`/`checkoutUrl`), `store` (`name`, `payTo`, `network`,
     `currency`), `page` (`title`, `h1`, `text`, `images`, `hiddenText`, `jsonLd`), `error` (one store or page; the
     search goes on), `done` (counts and `ms`).
-  - `q` matches when every word appears in the title, so `jacket` also matches "Jackets"; empty matches everything.
+  - `q` is passed to each store's `/api/catalog?q=`, so the store ranks its own listings by meaning with Atlas Vector Search and the Actor crawls only those (at most 40 per store); empty lists everything.
   - Page extraction works on any store: it applies React's streamed-HTML swap (content arrives in `<div hidden id="S:n">`),
     joins text nodes with spaces in document order, and collects `hiddenText` (`hidden`, `sr-only`, inline
     `display:none` and similar). Text hidden by stylesheet rules is not detected.
@@ -358,6 +361,7 @@ Keep this section current (see `AGENTS.md`).
 - [ ] Real listings, known sellers and market medians ingested into MongoDB
 - [x] Storefront API (`store.json`, catalog, x402 checkout) in each store, with listings and highlights loaded from MongoDB
 - [x] Store names and logos use the real names with the vowels removed (mzn, by, dpp)
+- [x] Storefront search pages with the query in the URL (`/s?k=`, `/sch?_nkw=`, `/search?q=`) and `/api/catalog?q=`, ranked by Atlas Vector Search with automated embedding; the store-crawler Actor crawls only the query's matches
 - [x] Scam storefront (mzn Official Outlet: lookalike brand, too cheap, prompt injection, fake reviews)
 - [ ] Apify listing ingestion
 - [x] Live store search: store-crawler Apify Standby Actor streaming listings and item pages, relayed as SSE by the agent API (`GET /search`)
