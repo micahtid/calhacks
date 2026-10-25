@@ -138,21 +138,22 @@ Browser (Vercel)  <- SSE -  agent API (Railway, FastAPI)  <- NDJSON -  store-cra
 - **Agent API** (`apps/agent/api/app`): `GET /search?q=&max=&max_price=` relays the Actor's events as SSE (`event:`
   is the event type). Searches cover `STORE_URLS`, by default mzn, by, dpp and the mzn Official Outlet scam store. If the
   Actor can't be reached, the stream sends one `error` event and ends.
-- **Mock Gate** (`app/gate.py`, until the real Gate can judge live listings): right after each item's `page` (or
-  page `error`) the stream sends a `verdict` event with the contracts' `GateDecision` fields plus `store` and `key`,
-  with `model_version: "mock"`. The UI can be built against it now, and the real Gate can replace it without changing
-  the stream.
-  - Layer 1: the store's domain must be mzn, by or dpp (`L1_SELLER_UNTRUSTED`), and the price must be at most
-    `max_price` (`L1_OVER_MAX`). It checks domains, not wallets, because the hosted stores and the outlet share one
-    test wallet.
-  - Layer 2 (hand-weighted, threshold 0.5): prompt-injection patterns in the page or hidden text (0.7), any hidden
-    text (0.6), and a price under 10% of the search's median price so far (0.6). The patterns are the seed list in
-    `contracts/injection_patterns.json`, the same one the real Gate's Layer 2 counts.
-  - Known stores come from the one store list in `app/search.py`, and every decision is validated as a contracts
-    `GateDecision` before it is sent.
-  - A page that could not be fetched is a skip with `decided_by: null` and an `error`, like the real Gate's fail-closed 503.
-  - On a live search of all 686 listings it skipped all 148 outlet listings at Layer 1 and approved every real one.
-  - Self-check: `uv run python -m app.gate` (from `apps/agent/api`).
+- **Gate** (`app/gate.py`, a client of the Gate service in `gate/`), in two passes, both Layer 1's rules and then the
+  red-teamed model (`gates/CURRENT`):
+  - **Screening, every listing:** after each item's `page` the agent API sends `POST {GATE_URL}/screen` the user's
+    limit, the listing's page URL and the page the Actor read, and the stream sends a `verdict` event with the
+    `GateDecision` fields plus `store` and `key`. The Gate takes title, price, seller and wallet from its own cached
+    catalog and `store.json`, so it contacts no store per listing.
+  - **Before paying, once:** for the confirmed pick the agent API sends `POST {GATE_URL}/decide`, and the Gate reads the
+    page and the store's real 402 itself. Anything but `buy` stops the purchase before checkout starts.
+  - Up to 32 screenings run at once (`GATE_CONCURRENCY` in `app/main.py`), so verdicts come after their page but not
+    always in page order; every verdict comes before the search's `done`.
+  - A page error, a Gate error, a timeout (10 s screening, 30 s before paying) or no `GATE_URL` is a skip with
+    `decided_by: null` and an `error`.
+  - Whether a listing is the item asked for stays in `rank.qualified`, so the mandate's product key is the listing's own.
+  - Measured locally (Gate container with `r3-be84bc`, `q=fleece jacket`, 25 per store, the stores as deployed): all
+    25 outlet listings skipped, all 75 real ones bought, each verdict 0.2-0.3 s after its page, the search done when
+    the crawl is (10-12 s); the check before paying took 4-5 s, nearly all of it the store's 402.
 - **Measured** (agent API -> Standby, `q=fleece jacket`, 10 per store, 3 stores): first listing 0.2-0.5s, all 30 pages
   in about 2s. All 317 items take 3.0s at 4 GB and 18.5s at 1 GB: Apify gives CPU in proportion to memory, and
   parsing (~10ms a page) needs it. Standby is set to 4 GB in the Apify console. The first request after 5 minutes idle
@@ -235,7 +236,7 @@ OpenAI-compatible at `https://api-inference.bitdeer.ai/v1`); it never touches mo
      "sz S M L XL", "Mens Medium", "(Medium)", "2X-Large", ranges as every size; titles with no size stay). Measured
      on the 617 hosted titles: the gender answer removes 23-50% of a search's results, and 182 titles state a size.
      With either filter on, the actor is asked for 50 listings per store instead of 25.
-2. **Search and check:** the live search above with that query and limit, 25 listings per store, and a mock Gate
+2. **Search and check:** the live search above with that query and limit, 25 listings per store, and a Gate
    `verdict` per listing. If a query finds nothing, it is retried with its first word dropped ("warm fleece jacket",
    then "fleece jacket", then "jacket"), with a `search` event per query. Page text stays on the server for the Scout.
    Listings over the limit or filtered out above never reach the feed.
@@ -351,8 +352,12 @@ OpenAI-compatible at `https://api-inference.bitdeer.ai/v1`); it never touches mo
 
 - **Attack families** (`contracts/families.json`): Layer 1 catches payment mismatch, bait-and-switch and product
   switch by rule. Layer 2 handles lookalike wallets and unknown sellers within the cap, too-cheap, prompt injection, hidden
-  text and fake reviews.
-  `urgency_pressure` and `lookalike_domain` are held out of training entirely, for the final exam.
+  text, fake reviews and store clones (`store_clone`, modelled on the mzn Official Outlet: a lookalike of a known
+  store's domain paid to that store's own wallet, 2-12% of the median price, and an LLM-written note telling AI
+  shopping assistants to skip checks).
+  `urgency_pressure` and `lookalike_domain` are held out of training entirely, for the final exam. `store_clone`
+  overlaps `lookalike_domain` (both imitate a known domain), so held-out recall on `lookalike_domain` is no longer a
+  clean measure from the round that adds it.
 - **Seller trust:** a **known wallet** (on the known-seller list) is trusted. An **unknown wallet** is paid only up to `unknown_seller_cap_usd` ($100, `contracts/allowlist.json`), and Layer 2 then decides; $100 covers about 92% of the scraped listings. CRS is not used.
 
 On this network uv may need `UV_SYSTEM_CERTS=1` (TLS interception).
@@ -366,7 +371,7 @@ Two layers decide whether the wallet may pay; both must say yes. Details: `gate/
   the price; price within max price and spend remaining; network and asset allowlisted; checkout item and product match the
   listing and the mandate; 402 timeout at most 120s. `node gate/layer1/src/cli.ts < gate_inputs.jsonl`. It is an npm
   workspace: `npm run test:gate-l1`; root `npm run build` / `npm run lint` typecheck it.
-  `L1_SELLER_UNTRUSTED` stays a valid (deprecated) `RuleId` only for the agent API's mock Gate; Layer 1 no longer runs it.
+  `L1_SELLER_UNTRUSTED` stays a valid (deprecated) `RuleId` so older verdicts still validate; Layer 1 no longer runs it.
 - **Layer 2** (`gate/gatepy` + `gate/features`, Python): a LightGBM risk score that runs only when Layer 1 passes and can
   only turn a buy into a skip. Features from issue #1: price vs median, known wallet and wallet age,
   domain and wallet lookalikes, injection and hidden-text scores, review similarity. Each decision carries its top 3 reasons.
@@ -379,10 +384,11 @@ Two layers decide whether the wallet may pay; both must say yes. Details: `gate/
 - **Gate service** (`gatepy.app`, `gate/Dockerfile`): the Gate as its own Railway service, separate from the agent API.
   `POST /decide` (`GateRequest` -> `GateDecision`), `GET /health`, `GET /version`; Layer 1 in one long-lived Node
   process. The image installs the deployed model and its exact feature code from `gates/` and refuses to start if
-  they don't match. Railway settings and the release procedure: `gates/README.md`.
+  they don't match. With `GATE_STORES` set it reads each listing from the live store itself (catalog, item page,
+  `store.json`, the unpaid 402) and needs no database. Railway settings and the release procedure: `gates/README.md`.
 - **Gate archive** (`gates/`): every kept model with its own feature code, card and benchmark; `gates/CURRENT` is the
-  deployed one (`r2-f0bfbd`: 91.8% accuracy, 88.1% of seen-family scams caught, 1.8% model false blocks on the
-  benchmark; full figures against the baseline in `gate/README.md`). `uv run --project gate gate-release export|install|verify`.
+  deployed one (`r3-be84bc`: on the live stores it skipped 105/105 mzn Official Outlet listings and 0/304 real ones;
+  on the benchmark 90.7% accuracy and 1.8% model false blocks; full figures in `gate/README.md`). `uv run --project gate gate-release export|install|verify`.
 
 ## Red-team loop
 
@@ -528,7 +534,7 @@ Keep this section current (see `AGENTS.md`).
 - [x] Scam storefront (mzn Official Outlet: lookalike brand, too cheap, prompt injection, fake reviews)
 - [ ] Apify listing ingestion
 - [x] Live store search: store-crawler Apify Standby Actor streaming listings and item pages, relayed as SSE by the agent API (`GET /search`)
-- [x] Mock Gate verdicts in the search stream (`GateDecision` shape, `model_version: "mock"`), standing in for the real Gate
+- [x] Gate verdicts in the search stream from the Gate service (`POST /decide`), replacing the mock Gate
 - [x] Saved chats in MongoDB (`agent.chats`) per browser, with delete in the sidebar
 - [x] Wallet in the agent web app: live USDC balance and Add Funds (CDP faucet) in Settings, real Base Sepolia transfers in Transactions
 - [x] Agent web chat runs live from `GET /chat` in the demo's design (editable prompt, live feed and checks, picks, collapsed reasoning, checkout steps, receipt)
@@ -543,7 +549,7 @@ Keep this section current (see `AGENTS.md`).
 - [x] Gate Layer 2: LightGBM risk model trained and evaluated on MongoDB data, `POST /gate/risk`
 - [x] Gate service and release archive: `gate/Dockerfile` (Railway), `POST /decide`, `gates/` with the red-teamed
   `r2-f0bfbd` as `CURRENT`
-- [ ] Gate service deployed on Railway and its database loaded with the listings Scout proposes
+- [x] Gate service deployed on Railway (`gate`, same project and region as the agent API, `r3-be84bc`), `GATE_URL` set on the agent API
 - [ ] Wallet signer + x402 payment against Base Sepolia
 - [x] Bitdeer attack generation from real MongoDB listings (`mutate_real` / `generate`), labels and attack diffs set by code
 - [ ] Labeled dataset generated from real listings (blocked on real listings in MongoDB)

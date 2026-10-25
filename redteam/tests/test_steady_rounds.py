@@ -14,7 +14,7 @@ from test_mcp_server import round1  # noqa: F401  (fixture)
 # ---------- promotion ----------
 def test_with_coverage_required_a_family_missing_from_val_blocks_promotion(monkeypatch):
     full = {f: 0.9 for f in ("too_cheap", "payment_mismatch", "product_switch", "bait_and_switch", "hidden_text",
-                             "prompt_injection", "fake_reviews", "lookalike_payto")}
+                             "prompt_injection", "fake_reviews", "lookalike_payto", "store_clone")}
     assert decide(m(0.9, 0.01, **full), None)[0]  # coverage not required: no complaint
     monkeypatch.setenv("REDTEAM_REQUIRE_COVERAGE", "1")
     assert decide(m(0.9, 0.01, **full), None)[0]

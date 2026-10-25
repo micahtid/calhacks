@@ -9,7 +9,24 @@ the listing the Gate fetched itself + references it looked up itself); the outpu
 | 1 | `layer1/` (TypeScript) | Fixed rules, never learned: 402 wallet matches `store.json`; a known wallet, or an unknown wallet priced within `unknown_seller_cap_usd` ($100); amount equals price; max price; spend remaining; network and asset allowlist; checkout item; product matches the mandate; 402 timeout |
 | 2 | `gatepy/` + `features/` (Python) | LightGBM risk score, run only when Layer 1 passes and only able to turn buy into skip. Monotone in price and trust signals, fixed threshold, top-3 reasons |
 
-## Deployed model: r2-f0bfbd
+## Deployed model: r3-be84bc
+
+The Gate service ships `r3-be84bc` (`../gates/CURRENT`): `r2-f0bfbd` plus one red-team round with the `store_clone`
+family, run after `r2-f0bfbd` let every mzn Official Outlet listing through on the live stores. Card:
+`../gates/r3-be84bc/CARD.md`.
+
+Live stores (the Gate service reading each listing itself, 5 searches, 25 listings per store):
+
+| Store | Listings | r2-f0bfbd skipped | r3-be84bc skipped |
+|---|---|---|---|
+| mzn, by, dpp (real) | 304 | 1.3% (3 timeouts, 1 `payment_coercion`) | 0% |
+| mzn Official Outlet (scam) | 105 | 0% | **100%** |
+
+Benchmark (the fixed 444-row test set, which has no store clones): accuracy 90.7% [88–94] (r2 91.8%), seen-family
+scams caught 85.6% [79–91] (88.1%), model false blocks 1.8% (1.8%), risk AUC 0.965 (0.954). The figures for `r2-f0bfbd`
+below are kept for comparison.
+
+## Previous model: r2-f0bfbd
 
 The Gate service ships `r2-f0bfbd` (`../gates/CURRENT`). It was promoted in round 2 of seed 1 of a three-seed red-team
 validation. It was the only candidate of 9 across the three seeds to beat the baseline (`r0-ac1d79`) under
@@ -125,7 +142,14 @@ cd gate && uv run pytest                                # mongomock, never Atlas
 - `gatepy.serve.Gate(...).score(GateRequest)` / `make_router()` (`POST /gate/risk`) are for the wallet. The Gate fetches
   the listing by `proposal.listing_id` and looks up references itself; any error is a 503 "skip".
 - `gatepy.app` is the deployable service (`gate/Dockerfile`, built from the repo root): `POST /decide`, `GET /health`,
-  `GET /version`, with Layer 1 kept in one long-lived Node process (`layer1_bridge.Layer1Process`). It loads
+  `GET /version`, with Layer 1 kept in one long-lived Node process (`layer1_bridge.Layer1Process`). With
+  `GATE_STORES` set there are two passes. `POST /screen` (every listing a search finds) takes the page the store
+  crawler read and adds the Gate's own cached catalog and `store.json` (refreshed in the background), so it fetches
+  nothing per listing. `POST /decide` (once, before paying) has `gatepy.live` read the listing from the live store
+  itself: `proposal.listing_id` is the item page URL; the catalog gives title, price and seller, `store.json` the wallet, the page its text plus hidden text
+  (`gatepy.page`, a copy of the store crawler's extractor), and an unpaid checkout POST the real 402. References are
+  the `GATE_KNOWN_STORES` wallets and domains and the median price of their closest title matches. Stores under
+  `GATE_HOSTED_SUFFIX` are named `<label>.com`, the way training names marketplace sites. It loads
   `GATE_MODEL_ID` (default `../gates/CURRENT`) and refuses to start if `gate/features` doesn't match the model's
   feature-code hash. `uv run --project gate --extra serve uvicorn --factory gatepy.app:create_app --port 8080`.
 - `gate-release export <id> --models DIR` writes a model and its exact feature code to `../gates/<id>/`;

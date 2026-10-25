@@ -170,3 +170,14 @@ def test_styled_names_look_like_real_ones_without_copying_them():
     assert sum(bool(audit.SYNTHETIC_NAME.search(n)) for n in gen) / len(gen) < 0.05
     ids = [n for n in gen if n[:1] == "A" and n.isalnum() and n.isupper()]
     assert ids  # Amazon-style merchant ids keep their leading "A"
+
+
+
+def test_store_clone_keeps_a_known_wallet_on_a_lookalike_domain_far_below_the_median(ctx):
+    refs, bases = ctx
+    m, syn, _, base = run("store_clone", ctx)
+    s = syn.listing.seller
+    known = {k.pay_to: k.domain for k in refs.known_sellers}
+    assert s.pay_to in known and syn.listing.checkout.pay_to == s.pay_to
+    assert s.domain != known[s.pay_to] and s.domain.startswith(known[s.pay_to].split(".")[0] + "-")
+    assert syn.listing.item.price <= mutate._median(base, refs) * 0.12 + 0.01 and m.llm_task == "store_clone"
