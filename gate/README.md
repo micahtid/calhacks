@@ -143,8 +143,10 @@ cd gate && uv run pytest                                # mongomock, never Atlas
   the listing by `proposal.listing_id` and looks up references itself; any error is a 503 "skip".
 - `gatepy.app` is the deployable service (`gate/Dockerfile`, built from the repo root): `POST /decide`, `GET /health`,
   `GET /version`, with Layer 1 kept in one long-lived Node process (`layer1_bridge.Layer1Process`). With
-  `GATE_STORES` set, `gatepy.live` reads each listing from the live store itself: `proposal.listing_id` is the item
-  page URL; the catalog gives title, price and seller, `store.json` the wallet, the page its text plus hidden text
+  `GATE_STORES` set there are two passes. `POST /screen` (every listing a search finds) takes the page the store
+  crawler read and adds the Gate's own cached catalog and `store.json` (refreshed in the background), so it fetches
+  nothing per listing. `POST /decide` (once, before paying) has `gatepy.live` read the listing from the live store
+  itself: `proposal.listing_id` is the item page URL; the catalog gives title, price and seller, `store.json` the wallet, the page its text plus hidden text
   (`gatepy.page`, a copy of the store crawler's extractor), and an unpaid checkout POST the real 402. References are
   the `GATE_KNOWN_STORES` wallets and domains and the median price of their closest title matches. Stores under
   `GATE_HOSTED_SUFFIX` are named `<label>.com`, the way training names marketplace sites. It loads

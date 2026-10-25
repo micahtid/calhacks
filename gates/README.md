@@ -86,7 +86,8 @@ non-200 is `skip`). It needs Python (LightGBM) and Node (Layer 1), so it is a Do
   (default `gates/CURRENT`; as a build variable it also picks what is installed). With `GATE_STORES` set the Gate
   reads every listing from the live store itself (`gatepy.live`: catalog, item page, `store.json` and the unpaid
   402) and needs no database. Without it, it reads listings by id from `MONGODB_URI` / `MONGODB_DB_REDTEAM`.
-- Endpoints: `POST /decide` (`GateRequest` → `GateDecision`; `POST /gate/risk` is an alias), `GET /health`,
+- Endpoints: `POST /screen` (the agent's screening of every search listing, from the page its crawler read),
+  `POST /decide` (`GateRequest` → `GateDecision`, the full check before paying; `POST /gate/risk` is an alias), `GET /health`,
   `GET /version` (model id, feature-code hash, threshold, contracts version). Layer 1 runs in one long-lived Node
   process (about 26 ms median per decision in the local container test).
 

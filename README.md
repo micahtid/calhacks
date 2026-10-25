@@ -138,16 +138,22 @@ Browser (Vercel)  <- SSE -  agent API (Railway, FastAPI)  <- NDJSON -  store-cra
 - **Agent API** (`apps/agent/api/app`): `GET /search?q=&max=&max_price=` relays the Actor's events as SSE (`event:`
   is the event type). Searches cover `STORE_URLS`, by default mzn, by, dpp and the mzn Official Outlet scam store. If the
   Actor can't be reached, the stream sends one `error` event and ends.
-- **Gate** (`app/gate.py`, a client of the Gate service in `gate/`): after each item's `page` the agent API sends
-  `POST {GATE_URL}/decide` a contracts `GateRequest` (the user's limit and the listing's page URL, nothing else), and
-  the stream sends a `verdict` event with the `GateDecision` fields plus `store` and `key`. The Gate reads the listing,
-  its 402 and the known stores itself, runs Layer 1's rules and then the red-teamed model (`gates/CURRENT`).
-  - Up to 32 decisions run at once (`GATE_CONCURRENCY` in `app/main.py`), so verdicts come after their page but not
+- **Gate** (`app/gate.py`, a client of the Gate service in `gate/`), in two passes, both Layer 1's rules and then the
+  red-teamed model (`gates/CURRENT`):
+  - **Screening, every listing:** after each item's `page` the agent API sends `POST {GATE_URL}/screen` the user's
+    limit, the listing's page URL and the page the Actor read, and the stream sends a `verdict` event with the
+    `GateDecision` fields plus `store` and `key`. The Gate takes title, price, seller and wallet from its own cached
+    catalog and `store.json`, so it contacts no store per listing.
+  - **Before paying, once:** for the confirmed pick the agent API sends `POST {GATE_URL}/decide`, and the Gate reads the
+    page and the store's real 402 itself. Anything but `buy` stops the purchase before checkout starts.
+  - Up to 32 screenings run at once (`GATE_CONCURRENCY` in `app/main.py`), so verdicts come after their page but not
     always in page order; every verdict comes before the search's `done`.
-  - A page error, a Gate error, a timeout (30 s) or no `GATE_URL` is a skip with `decided_by: null` and an `error`.
+  - A page error, a Gate error, a timeout (10 s screening, 30 s before paying) or no `GATE_URL` is a skip with
+    `decided_by: null` and an `error`.
   - Whether a listing is the item asked for stays in `rank.qualified`, so the mandate's product key is the listing's own.
-  - Measured locally (Gate container with `r3-be84bc`, `q=fleece jacket`, 10 per store): all 10 outlet listings
-    skipped, all 30 real ones bought, last verdict at 28 s, most of it the stores' own checkout and catalog responses.
+  - Measured locally (Gate container with `r3-be84bc`, `q=fleece jacket`, 25 per store, the stores as deployed): all
+    25 outlet listings skipped, all 75 real ones bought, each verdict 0.2-0.3 s after its page, the search done when
+    the crawl is (10-12 s); the check before paying took 4-5 s, nearly all of it the store's 402.
 - **Measured** (agent API -> Standby, `q=fleece jacket`, 10 per store, 3 stores): first listing 0.2-0.5s, all 30 pages
   in about 2s. All 317 items take 3.0s at 4 GB and 18.5s at 1 GB: Apify gives CPU in proportion to memory, and
   parsing (~10ms a page) needs it. Standby is set to 4 GB in the Apify console. The first request after 5 minutes idle

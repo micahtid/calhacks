@@ -4,7 +4,10 @@
                   scores the listing the Gate fetched itself against the model's stored threshold. Any error is a
                   503 with decision "skip" (fail closed).
                   With GATE_STORES set (the deployed service), the Gate reads each listing and its references from
-                  the live stores itself (gatepy.live) and needs no database.
+                  the live stores itself (gatepy.live) and needs no database. The agent calls it once, for the
+                  listing it is about to buy.
+  POST /screen    gatepy.live.ScreenRequest -> GateDecision, for every listing a search finds: the page text the
+                  store crawler read, with the Gate's own cached catalog and store.json. GATE_STORES only.
   GET  /health    liveness plus the loaded model id
   GET  /version   model id, feature-code hash, threshold, contracts version
 
@@ -43,6 +46,15 @@ class ServedGate(Gate):
     def resolve(self, request):
         return self.live.resolve(request) if self.live is not None else super().resolve(request)
 
+    def screen(self, request):
+        from gatepy.evaluate import decide
+        from gatepy.live import ScreenRequest
+        if self.live is None:
+            raise RuntimeError("/screen needs GATE_STORES")
+        req = request if isinstance(request, ScreenRequest) else ScreenRequest.model_validate(request)
+        gi = self.live.screen(req)
+        return decide(self.model, [gi], l1=self.layer1.run([gi]))[0]
+
     def score(self, request):
         from calhacks_contracts import GateRequest
         from gatepy.evaluate import decide
@@ -62,7 +74,10 @@ def create_app(gate: Gate | None = None) -> FastAPI:
     if gate is None:
         model_id = os.environ.get("GATE_MODEL_ID") or current()
         verify(model_id, MODELS)  # refuse to start on a feature-code mismatch
-        gate = ServedGate(model_id, MODELS, live=LiveStores.from_env() if os.environ.get("GATE_STORES") else None)
+        live = LiveStores.from_env() if os.environ.get("GATE_STORES") else None
+        if live is not None:
+            live.keep_warm()
+        gate = ServedGate(model_id, MODELS, live=live)
     app = FastAPI(title="Gate", version=gate.model.model_id)
     meta = gate.model.meta
 
@@ -75,6 +90,14 @@ def create_app(gate: Gate | None = None) -> FastAPI:
 
     app.post("/decide")(decide)
     app.post("/gate/risk")(decide)
+
+    @app.post("/screen")
+    def screen(request: dict):
+        try:
+            return gate.screen(request).model_dump(mode="json")
+        except Exception as e:  # noqa: BLE001 - fail closed on anything
+            return JSONResponse(status_code=503, content={
+                "decision": "skip", "decided_by": None, "error": f"{type(e).__name__}: {e}"})
 
     @app.get("/health")
     def health():
