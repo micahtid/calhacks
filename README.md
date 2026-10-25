@@ -75,7 +75,7 @@ Each storefront also has a human-facing search page whose query lives in the URL
 
 ### Planted scams in the honest stores
 
-`redteam.plant` turns a seeded 5% of each marketplace's sellable listings in `calhacks.listings` into scams, in place, following the `mutate_real` rule: one family per listing, only that family's fields change (`mutate.ALLOWED_DIFF`), titles never (the Atlas title index stays valid). Each planted document carries a top-level `scam` field (`family`, `diff`, `original`, `seed`, `planted_at`); the stores and `/api/catalog` never read it, and `scrape_map` leaves marked documents out of the real bases. Currently planted: 83 listings (26 mzn, 27 by, 30 dpp), seed 1.
+`redteam.plant` turns a seeded 5% of each marketplace's sellable listings in `calhacks.listings` into scams, in place, following the `mutate_real` rule: one family per listing, only that family's fields change (`mutate.ALLOWED_DIFF`), titles never (the Atlas title index stays valid). Each planted document carries a top-level `scam` field (`family`, `diff`, `original`, `seed`, `planted_at`); the stores and `/api/catalog` never read it, and `scrape_map` leaves marked documents out of the real bases. Currently planted: 88 listings, the seeded 83 (26 mzn, 27 by, 30 dpp, seed 1) plus 5 chosen with `--only` so a "warm thermal jacket" demo search shows every family.
 
 | Family | Change on the listing |
 |---|---|
@@ -93,6 +93,7 @@ uv run --project redteam python -m redteam.plant --dry-run     # counts and one 
 uv run --project redteam python -m redteam.plant [--rate 0.05] [--seed 1]
 uv run --project redteam python -m redteam.plant --key         # answer key as JSONL (id, marketplace, family, diff)
 uv run --project redteam python -m redteam.plant --undo        # restore every planted listing exactly
+uv run --project redteam python -m redteam.plant --only ebay-227458194789=too_cheap ...   # chosen listings, on top of the rest
 ```
 
 Planting refuses to run while listings are already marked; `--undo` first. Test: `redteam/tests/test_plant.py`.
