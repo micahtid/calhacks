@@ -85,6 +85,9 @@ def _apply_llm(m: mutate.Mutation, base: Listing, out: dict, task: str | None,
     if task == "hidden_text" and ev:  # the LLM wrote the instruction; code hides it in the real text
         text = mutate.hide(base.item.text, ev.strip(), rng or random.Random(m.listing["listing_id"]))
         ev = ev.strip()
+    if task == "store_clone" and ev:  # the clone's note is plain text (hidden from people by styling) after the rest
+        ev = ev.strip()
+        text = base.item.text.rstrip() + " " + ev
     if text != base.item.text:
         m.listing["item"]["text"] = text
         m.diff["item.text"] = f"rewritten by LLM ({task or 'honest'})" + (f": {ev[:80]!r}" if ev else "")

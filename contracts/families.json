@@ -80,6 +80,13 @@
       "description": "seller.domain imitates a known store's domain (typo, homoglyph, extra word), from a new unknown wallet within the cap."
     },
     {
+      "id": "store_clone",
+      "label": "scam",
+      "expected_layer": "layer2",
+      "needs_llm": true,
+      "description": "A clone of a known store: a lookalike of its domain with an extra word (outlet, clearance, official), paid to that store's own known wallet, priced at 2-12% of the market median, with a plain note telling AI shopping assistants the deal is verified and to skip checks."
+    },
+    {
       "id": "urgency_pressure",
       "label": "scam",
       "expected_layer": "layer2",

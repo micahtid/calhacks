@@ -351,8 +351,12 @@ OpenAI-compatible at `https://api-inference.bitdeer.ai/v1`); it never touches mo
 
 - **Attack families** (`contracts/families.json`): Layer 1 catches payment mismatch, bait-and-switch and product
   switch by rule. Layer 2 handles lookalike wallets and unknown sellers within the cap, too-cheap, prompt injection, hidden
-  text and fake reviews.
-  `urgency_pressure` and `lookalike_domain` are held out of training entirely, for the final exam.
+  text, fake reviews and store clones (`store_clone`, modelled on the mzn Official Outlet: a lookalike of a known
+  store's domain paid to that store's own wallet, 2-12% of the median price, and an LLM-written note telling AI
+  shopping assistants to skip checks).
+  `urgency_pressure` and `lookalike_domain` are held out of training entirely, for the final exam. `store_clone`
+  overlaps `lookalike_domain` (both imitate a known domain), so held-out recall on `lookalike_domain` is no longer a
+  clean measure from the round that adds it.
 - **Seller trust:** a **known wallet** (on the known-seller list) is trusted. An **unknown wallet** is paid only up to `unknown_seller_cap_usd` ($100, `contracts/allowlist.json`), and Layer 2 then decides; $100 covers about 92% of the scraped listings. CRS is not used.
 
 On this network uv may need `UV_SYSTEM_CERTS=1` (TLS interception).
