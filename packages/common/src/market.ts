@@ -30,6 +30,8 @@ export type MarketListing = {
   item: {
     title: string;
     price: number;
+    // Set only on a planted payment_mismatch scam (redteam.plant): what the 402 demands, more than the page shows.
+    checkoutPrice?: number;
     condition: string | null;
     description: string | null;
     listPrice: number | null;

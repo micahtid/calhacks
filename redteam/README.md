@@ -23,6 +23,7 @@ All commands run from the repo root. Real listings must be in MongoDB first (`co
 | Resume a round | `... redteam.coordinator --round 1 --resume <session_id>` | same |
 | Canary isolation test | `REDTEAM_LIVE=1 uv run --project redteam pytest -s redteam/tests/test_isolation.py` | Bitdeer |
 | Rounds table | `uv run --project redteam python -m redteam.report` | MongoDB |
+| Plant scams in the live stores (5% of `calhacks.listings`, in place, marked) | `uv run --project redteam python -m redteam.plant [--dry-run\|--key\|--undo]` | MongoDB |
 
 ## Where things go
 
