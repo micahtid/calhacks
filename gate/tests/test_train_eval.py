@@ -133,7 +133,7 @@ def test_train_needs_both_labels(tmp_path):
 def test_clis_print_json_and_exit_codes(trained, repo, models_dir, capsys, monkeypatch, tmp_path):
     monkeypatch.setattr("gatepy.train.get_repo", lambda: repo)
     monkeypatch.setattr("gatepy.evaluate.get_repo", lambda: repo)
-    monkeypatch.setattr("gatepy.evaluate.load", lambda mid: load(mid, models_dir))
+    monkeypatch.setattr("gatepy.evaluate.load", lambda mid, _dir=None: load(mid, models_dir))
     assert train_main(["--round", "1", "--out", str(models_dir)]) == 0
     assert json.loads(capsys.readouterr().out)["model_id"] == trained["model_id"]
     assert eval_main(["--model", trained["model_id"], "--split", "val"]) == 0

@@ -56,6 +56,8 @@ cd gate && uv run pytest                                # mongomock, never Atlas
 - In-process scoring (used for the holdout, which never enters MongoDB):
   `gatepy.evaluate.evaluate(model, [(Listing, Case | None, AnswerKey), ...], refs)` where `refs` is a
   `calhacks_contracts.db.ReferenceSet` (e.g. `repo.reference_snapshot().overlay(crs=..., wallets=...)`).
+- `gatepy.evaluate.evaluate_repo(model_id, repo, split, ids, query, with_rows, models_dir)` is `gate-eval` as a function,
+  for callers that already hold a `Repo` (e.g. an in-memory test database).
 - `gatepy.model_io.load(model_id)`, `set_promoted(model_id, val=..., holdout=...)`; the promotion rule (C6) belongs to redteam.
 - On revert, call `gatepy.model_io.restore_features("promoted")`: features are edited in place, so a rejected
   candidate's code would otherwise stay live. Each model file carries its feature sources.

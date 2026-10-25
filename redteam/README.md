@@ -47,6 +47,14 @@ All commands run from the repo root. Real listings must be in MongoDB first (`co
 
 ## Gate backend
 
-`redteam/src/redteam/gate_client.py` switches between `stub` (default; `gate_stub.py`, same JSON as the real CLIs)
-and `real` (the `gate-train` / `gate-eval` CLIs, and `gatepy` in-process for the holdout). `REDTEAM_GATE=real`
-overrides it. The stub ignores `gate/features/`, so feature editing is disabled in stub runs.
+`redteam/src/redteam/gate_client.py` runs the real Gate in `gate/` by default (`redteam` depends on `gate` by path).
+It calls the `gate-train` / `gate-eval` CLIs in a subprocess for MongoDB, with `HOLDOUT_KEY` and `CALHACKS_HOLDOUT`
+removed from the environment, and calls `gatepy` in-process for an in-memory (mongomock) database and for the holdout.
+Models live in `gate/models/` (`CALHACKS_MODELS`, passed on as `GATE_MODELS`); promotion goes through
+`gatepy.model_io.set_promoted`, and a refused candidate's feature code is put back with `restore_features`.
+
+- `REDTEAM_GATE=stub` selects `gate_stub.py`, a fast stand-in with the same JSON. Unit tests use it; it ignores
+  `gate/features/`, so feature editing is off in stub runs.
+- The real Gate refuses a leftover stub `promoted.json` (`r*-stub-*`); delete it and the stub model files first.
+- The MCP server imports the Gate on its main thread at startup (`gate_client.preload`): on Windows, a first numpy or
+  LightGBM import from FastMCP's worker thread deadlocks.

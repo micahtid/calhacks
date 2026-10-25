@@ -209,4 +209,5 @@ def _jsonify(fn):
 
 
 if __name__ == "__main__":
+    gate_client.preload()  # main thread, before serving (see gate_client.preload)
     build_server().run()

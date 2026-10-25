@@ -11,7 +11,7 @@ import json
 import math
 import re
 import unicodedata
-from datetime import date
+from datetime import date, datetime, timezone
 
 from calhacks_contracts import AnswerKey, Case, Check, GateDecision, GateInput, Listing, Reason
 from calhacks_contracts.db import ReferenceSet
@@ -203,3 +203,16 @@ def evaluate(model_id: str, split: str = "all", ids: list[str] | None = None, ro
 def features() -> list[str]:
     return list(FEATURES)
 
+
+
+def set_promoted(model_id: str, val: dict, holdout: dict | None) -> dict:
+    """Same promoted.json shape as gatepy.model_io.set_promoted."""
+    p = MODELS_DIR / "promoted.json"
+    state = json.loads(p.read_text()) if p.exists() else {"model_id": None, "history": []}
+    state["model_id"] = model_id
+    state["history"].append({"model_id": model_id, "round": load(model_id).get("round"),
+                             "promoted_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                             "val": val, "holdout": holdout})
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(state, indent=1))
+    return state
