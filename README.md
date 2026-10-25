@@ -16,11 +16,11 @@
   <a href="#our-value">Value</a> ·
   <a href="#approach-at-a-glance">Approach</a> ·
   <a href="#results">Results</a> ·
-  <a href="#built-with">Built with</a> ·
-  <a href="#technical-reference">Technical reference</a>
+  <a href="#built-with">Built With</a> ·
+  <a href="#technical-reference">Technical Reference</a>
 </p>
 
-# The problem
+# The Problem
 
 AI can already find good prices, but **only about 1 in 10 people will let an agent finish a purchase**. Trust breaks
 down between finding an item and paying for it, and the bigger the amount, the worse it gets.
@@ -30,7 +30,7 @@ stores, paying scammers after reading fake reviews, leaking user data, and getti
 listing. Agentic payment rails (Visa, Mastercard, Coinbase x402) already exist, and projections put AI-driven US sales
 at $300-500B by 2030. What's missing is a reason to trust the agent with the money.
 
-# Our value
+# Our Value
 
 **Hunter is reimagining the shopping experience: you hand a purchase to an AI without handing it your wallet.** You
 say what you want and set a limit once. Hunter searches real marketplaces, asks only the questions that change which
@@ -67,7 +67,7 @@ that takes judgment:
 | Prompt injection, hidden text | Detected as risk signals, and they can never turn a skip into a buy | Red-teamed model |
 | Fake reviews | Bursts of near-duplicate reviews count as risk, not trust | Red-teamed model |
 
-# Approach at a glance
+# Approach at a Glance
 
 ```mermaid
 flowchart LR
@@ -110,7 +110,7 @@ Measured with the deployed Gate model `r3-be84bc` (full figures in [`gate/README
 - **Honest limits:** families the red team never trained against are still mostly missed (the sealed holdout's
   held-out families), so new kinds of scam need new red-team rounds. Unknown sellers under the $100 cap pass by design.
 
-# Built with
+# Built With
 
 <h3 align="center">Sponsors</h3>
 
@@ -121,7 +121,7 @@ Measured with the deployed Gate model `r3-be84bc` (full figures in [`gate/README
   <a href="https://www.coinbase.com/developer-platform"><img src="assets/logos/coinbase.svg" height="32" alt="Coinbase"></a>
 </p>
 
-<h3 align="center">Other technologies</h3>
+<h3 align="center">Other Technologies</h3>
 
 <p align="center">
   <img src="https://img.shields.io/badge/MongoDB%20Atlas%20Vector%20Search-47A248?style=flat&logo=mongodb&logoColor=white" alt="MongoDB Atlas Vector Search">
@@ -146,7 +146,7 @@ Measured with the deployed Gate model `r3-be84bc` (full figures in [`gate/README
 
 ---
 
-# Technical reference
+# Technical Reference
 
 Each part of the system has its own reference doc.
 
