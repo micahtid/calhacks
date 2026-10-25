@@ -4,7 +4,6 @@ import logging
 import os
 import re
 import secrets
-import statistics
 import time
 from collections import Counter
 from collections.abc import AsyncIterator
@@ -133,21 +132,50 @@ def stream(events: AsyncIterator[dict]) -> StreamingResponse:
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+GATE_CONCURRENCY = 32  # Gate decisions at once. Each one waits on the store's page and 402, not on the Gate.
+
+
 async def judged(query: str, max_per_store: int, max_price: float | None) -> AsyncIterator[dict]:
-    """The actor's search events, plus a `verdict` (GateDecision fields + store, key) right after each item's
-    page or page error."""
+    """The actor's search events, plus a `verdict` (GateDecision fields + store, key) from the Gate for each item
+    whose page loaded, or a skip for each page error. Decisions run GATE_CONCURRENCY at a time, so a verdict comes
+    after its page but not always in page order, and every verdict comes before the search's done event."""
+    out: asyncio.Queue[dict | None] = asyncio.Queue()
+    limit = asyncio.Semaphore(GATE_CONCURRENCY)
     listings: dict[tuple[str, str], dict] = {}
-    async for event in search(app.state.client, query, max_per_store):
-        yield event
-        if event["type"] == "listing":
-            listings[event["store"], event["key"]] = event
-        elif event["type"] in ("page", "error") and "key" in event:
-            # ponytail: median of the prices seen so far in this search stands in for market medians.
-            median = statistics.median(l["price"] for l in listings.values())
-            listing = listings[event["store"], event["key"]]
-            decision = (gate.decide(listing, event["page"], max_price, median) if event["type"] == "page"
-                        else gate.unavailable(event["error"]))
-            yield {"type": "verdict", "store": event["store"], "key": event["key"], **decision}
+
+    async def verdict(event: dict) -> None:
+        if event["type"] == "page":
+            async with limit:
+                decision = await gate.judge(app.state.client, listings[event["store"], event["key"]], max_price)
+        else:
+            decision = gate.unavailable(event["error"])
+        await out.put({"type": "verdict", "store": event["store"], "key": event["key"], **decision})
+
+    async def crawl() -> None:
+        done = None
+        try:
+            async with asyncio.TaskGroup() as tg:
+                async for event in search(app.state.client, query, max_per_store):
+                    if event["type"] == "done":
+                        done = event
+                        continue
+                    await out.put(event)
+                    if event["type"] == "listing":
+                        listings[event["store"], event["key"]] = event
+                    elif event["type"] in ("page", "error") and "key" in event:
+                        tg.create_task(verdict(event))
+            if done is not None:
+                await out.put(done)
+        finally:
+            await out.put(None)
+
+    task = asyncio.create_task(crawl())
+    try:
+        while (event := await out.get()) is not None:
+            yield event
+        await task  # Surfaces a search error instead of ending the stream silently.
+    finally:
+        task.cancel()
 
 
 async def found(query: str, max_per_store: int, max_price: float | None) -> AsyncIterator[dict]:

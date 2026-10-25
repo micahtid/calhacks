@@ -100,18 +100,40 @@ export const CHECKOUT = (store: string) => [
   "Order Confirmed",
 ];
 
-type Verdict = { decision: "buy" | "skip"; decided_by: string | null; failed_rule: string | null; top_reasons: { feature: string }[] };
+type Verdict = {
+  decision: "buy" | "skip";
+  decided_by: string | null;
+  failed_rule: string | null;
+  top_reasons: { feature: string; contribution: number }[];
+};
 
-// What a skipped row says in the feed. Over the user's limit is not a scam, so it gets its own label.
+// The Gate's Layer 1 rules (contracts RULE_IDS) and Layer 2 features (gate/features), as the feed names them.
+const RULES: Record<string, string> = {
+  L1_OVER_MAX: "Over Your Limit",
+  L1_OVER_BUDGET: "Over Your Limit",
+  L1_PAYTO_MISMATCH: "Wrong Payment Address",
+  L1_UNKNOWN_SELLER_CAP: "Unknown Seller Over $100",
+  L1_AMOUNT_MISMATCH: "Price Changed at Checkout",
+  L1_ITEM_MISMATCH: "Not the Listed Item",
+  L1_PRODUCT_MISMATCH: "Not the Listed Item",
+};
+const FEATURES: [RegExp, string][] = [
+  [/^(injection_|imperative_to_agent|hidden_chars|mixed_script_words)/, "Hidden Instructions"],
+  [/^payment_coercion$/, "Pushy Payment Request"],
+  [/^(price_|untrusted_deep_discount|has_median)/, "Too Cheap to Be Real"],
+  [/^(domain_|bargain_on_imitation_domain$|known_wallet_wrong_domain$)/, "Fake Store Website"],
+  [/^payto_(lookalike|affix_match)$/, "Wrong Payment Address"],
+  [/^(known_wallet|payto_age_days)$/, "Unknown Seller"],
+  [/^review_/, "Fake Reviews"],
+];
+
+// What a skipped row says in the feed. Over the user's limit is not a scam, so it gets its own label. A Layer 2 skip
+// is named after the reason that raised its risk the most (top_reasons can also hold reasons that lowered it).
 export function reasonLabel(v: Verdict): string {
-  if (v.failed_rule === "L1_SELLER_UNTRUSTED") return "Fake Store Website";
-  if (v.failed_rule === "L1_OVER_MAX" || v.failed_rule === "L1_OVER_BUDGET") return "Over Your Limit";
-  if (v.failed_rule === "L1_PAYTO_MISMATCH") return "Wrong Payment Address";
-  if (v.failed_rule) return "Failed a Safety Check";
-  const feature = v.top_reasons[0]?.feature;
-  if (feature === "injection_hits" || feature === "hidden_text") return "Hidden Instructions";
-  if (feature === "price_ratio") return "Too Cheap to Be Real";
-  return v.decided_by ? "Looks Risky" : "Couldn't Check";
+  if (v.failed_rule) return RULES[v.failed_rule] ?? "Failed a Safety Check";
+  const feature = v.top_reasons.find((r) => r.contribution > 0)?.feature ?? "";
+  const label = FEATURES.find(([pattern]) => pattern.test(feature))?.[1];
+  return v.decided_by ? (label ?? "Looks Risky") : "Couldn't Check";
 }
 
 // Small words that stay lowercase inside a title.
