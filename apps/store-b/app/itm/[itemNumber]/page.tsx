@@ -1,18 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Chevron, Heart, formatUsd, percentOff } from "@calhacks/common";
+import { Chevron, Heart, PRERENDERED_ITEMS, formatUsd, percentOff } from "@calhacks/common";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ItemCard from "@/components/ItemCard";
 import { Expand, Info } from "@/components/Icons";
 import { deliveryEstimate, getItem, itemPath, itemsOf } from "@/lib/catalog";
 
-// Every item page is built ahead of time from the catalog, so this route can wait on its params.
+// The top item pages are built ahead of time and the rest render on request, so this route can wait on its params.
 export const instant = false;
 
 export async function generateStaticParams() {
-  return (await itemsOf()).map((item) => ({ itemNumber: item.itemNumber }));
+  return (await itemsOf()).slice(0, PRERENDERED_ITEMS).map((item) => ({ itemNumber: item.itemNumber }));
 }
 
 export async function generateMetadata({ params }: PageProps<"/itm/[itemNumber]">): Promise<Metadata> {

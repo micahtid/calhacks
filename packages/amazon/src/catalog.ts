@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { PRERENDERED_ITEMS } from "@calhacks/common";
 import type { Merchant } from "@calhacks/common/x402";
 import { itemsOf } from "./items";
 import type { Item, Store } from "./types";
@@ -8,7 +9,7 @@ export function itemPath(item: Item): string {
 }
 
 export async function itemParams(store: Store) {
-  return (await itemsOf(store)).map((item) => ({ id: item.id }));
+  return (await itemsOf(store)).slice(0, PRERENDERED_ITEMS).map((item) => ({ id: item.id }));
 }
 
 export async function itemMetadata(store: Store, id: string): Promise<Metadata> {
