@@ -26,12 +26,12 @@ def test_layer1_rules_on_contract_fixtures(repo, fixture_synthetic):
     refs = repo.reference_snapshot()
     got = {s.listing.listing_id: decide_first_failure(s, c, refs) for s, c in fixture_synthetic}
     assert got["S-0001"] == "L1_PAYTO_MISMATCH"
-    assert got["S-0002"] == "L1_SELLER_UNTRUSTED"           # lookalike wallet: not known, not CRS-verified
+    assert got["S-0002"] == "L1_UNKNOWN_SELLER_CAP"         # $175 lookalike wallet: unknown and over the cap
     assert got["S-0003"] == "L1_ITEM_MISMATCH"
     assert got["S-0010"] == "L1_PRODUCT_MISMATCH"
-    assert got["S-0004"] is None                            # CRS-only seller selling $49, under the $100 cap
+    assert got["S-0004"] is None                            # unknown wallet selling $49, under the $100 cap
     assert got["S-0008"] is None and got["S-0005"] is None   # known seller: Layer 1 passes, Layer 2 decides
-    assert got["S-0009"] == "L1_UNKNOWN_SELLER_CAP"         # CRS-only seller above unknown_seller_cap_usd
+    assert got["S-0009"] == "L1_UNKNOWN_SELLER_CAP"         # unknown wallet above unknown_seller_cap_usd
 
 
 def train_some(repo, fake_client):
@@ -72,7 +72,7 @@ def test_eval_items_for_listings_outside_mongo(repo, fake_client):
     out = train_some(repo, fake_client)
     held = run_spec({"spec_id": "H-x", "family": "urgency_pressure", "n": 6, "legit_ratio": 0, "mode": "mutate_real"},
                     round_=0, r=repo, client=fake_client(), write=False, allow_holdout=True, id_prefix="H")
-    refs = repo.reference_snapshot().overlay(crs=held["_refs"].crs, wallets=held["_refs"].wallets)
+    refs = repo.reference_snapshot().overlay(wallets=held["_refs"].wallets)
     items = [(s.listing, c, s.answer_key) for s, c in held["_items"]]
     ev = gate_stub.evaluate_items(out["model_id"], items, refs)
     assert ev["metrics"]["recall"]["n"] == len(items) > 0

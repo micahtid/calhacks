@@ -13,7 +13,7 @@ Condition = Literal["new", "like_new", "used", "poor"]
 
 
 class Seller(Strict):
-    id: str = Field(description="Seller account; known-seller list and CRS lookup")
+    id: str = Field(description="Seller account; known-seller list lookup")
     domain: str = Field(description="Site that runs the checkout; lookalike-domain check")
     pay_to: Address = Field(description="Wallet in store.json; must match checkout.pay_to")
 

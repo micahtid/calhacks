@@ -47,9 +47,11 @@ def test_report_is_assembled_by_code(promoted_round):
 
 
 def test_report_without_output_or_promotion(monkeypatch, repo):
+    """A session that never asks for a promotion still gets a report (a revert), not a crash."""
     monkeypatch.setenv("REDTEAM_ROUND", "2")
-    with pytest.raises(RuntimeError, match="no metrics"):
-        coordinator.assemble_report(2, None, None, {}, coordinator.COORDINATOR_MODEL)
+    rep = coordinator.assemble_report(2, None, None, {}, coordinator.COORDINATOR_MODEL)
+    assert rep.decision.action == "revert" and "no candidate" in rep.decision.reason
+    assert rep.metrics.recall.n == 0
 
 
 def test_holdout_key_only_reaches_the_mcp_server(monkeypatch, repo, fake_client):

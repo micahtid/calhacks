@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from calhacks_contracts import (
-    Case, CrsResult, GateDecision, KnownSeller, Listing, Mandate, RoundInput, SyntheticListing, rate,
+    Case, GateDecision, KnownSeller, Listing, Mandate, RoundInput, SyntheticListing, rate,
 )
 from calhacks_contracts.db import Repo
 from calhacks_contracts.export import main as export_main
@@ -27,8 +27,6 @@ def repo():
     refs = load("references.json")
     for k in refs["known_sellers"]:
         r.put_known_seller(KnownSeller.model_validate(k))
-    for c in refs["crs_results"]:
-        r.put_crs(CrsResult.model_validate(c))
     for m in refs["market_medians"]:
         r.put_median(m["product_key"], m["condition"], m["median"], m["n"], "fixture", "2026-10-24")
     return r
@@ -100,7 +98,7 @@ def test_repo_round_trip_and_references(repo):
     assert l is not None and l.item.price == 49.0
     assert repo.db.listings.find_one({"_id": "S-0004"}).keys() == {"_id", *Listing.model_fields}
     refs = repo.reference_snapshot().for_listing(l)
-    assert refs.crs_result and refs.crs_result.verified
+    assert l.checkout.pay_to.lower() not in {k.pay_to.lower() for k in refs.known_sellers}  # unknown wallet
     assert refs.market_median == 180.0
     assert len(refs.known_sellers) == 2
     keys = {k.listing_id: k for k in repo.answer_keys({"label": "scam"})}
@@ -126,8 +124,9 @@ def test_ingest_real_listings(repo):
 
 def test_overlay_adds_simulated_references(repo):
     snap = repo.reference_snapshot().overlay(
-        crs=[CrsResult(seller_id="seller_hidden", verified=True, verified_at="2026-10-23", source="stub")])
-    assert "seller_hidden" in snap.crs and "seller_hidden" not in repo.reference_snapshot().crs
+        wallets={"0xABCDEF0000000000000000000000000000000001": "2026-10-23"})
+    assert snap.wallets["0xabcdef0000000000000000000000000000000001"] == "2026-10-23"
+    assert "0xabcdef0000000000000000000000000000000001" not in repo.reference_snapshot().wallets
 
 
 def test_mandate_validation():
@@ -137,3 +136,10 @@ def test_mandate_validation():
 
 def test_exported_schemas_are_current():
     assert export_main(["--check"]) == 0
+
+
+def test_deprecated_seller_untrusted_rule_still_validates_for_the_agent_mock():
+    from calhacks_contracts import GateDecision
+    d = GateDecision(decision="skip", decided_by="layer1", failed_rule="L1_SELLER_UNTRUSTED",
+                     checks=[{"rule": "L1_SELLER_UNTRUSTED", "passed": False, "detail": "unknown store"}])
+    assert d.failed_rule == "L1_SELLER_UNTRUSTED"

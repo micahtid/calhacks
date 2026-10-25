@@ -34,6 +34,15 @@ def test_legit_and_real_families_are_not_recall_families():
     assert decide(m(0.9, 0.0, legit_plain=0.0, real=0.0), m(0.8, 0.0, legit_plain=0.2, real=0.2))[0]
 
 
+def test_fpr_bound_uses_layer2_false_blocks_when_reported():
+    cand = {**m(0.8, 0.07), "layer2_fpr": r(0.01)}  # 7% overall, all of it Layer 1 policy blocks
+    ok, why = decide(cand, None)
+    assert ok, why
+    bad = {**m(0.8, 0.07), "layer2_fpr": r(0.05)}
+    ok, why = decide(bad, None)
+    assert not ok and "Layer 2 false-block rate" in why[0]
+
+
 def test_candidate_eval_error_restores_promoted_features(monkeypatch):
     from redteam import gate_client, promotion
     restored = []

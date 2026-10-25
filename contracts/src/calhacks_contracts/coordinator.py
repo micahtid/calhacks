@@ -101,6 +101,9 @@ class RoundMetrics(Strict):
     adaptive_recall: Rate | None = Field(default=None, description="Recall on white_box attacks")
     recall: Rate = Field(description="Full Gate recall on synthetic scams")
     fpr: Rate = Field(description="Full Gate false-block rate on all legit listings")
+    layer2_fpr: Rate | None = Field(
+        default=None, description="False blocks among legit listings that pass Layer 1: the trained model's own "
+                                  "mistakes. Layer 1 policy blocks (e.g. unknown wallets over the cap) are excluded")
 
 
 class PromotionDecision(Strict):

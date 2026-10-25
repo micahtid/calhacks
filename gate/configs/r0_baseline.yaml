@@ -1,6 +1,6 @@
 # R0 baseline (plan B8): Layer 1 plus logistic regression on three features.
 kind: logreg
-features: [price_ratio, crs_verified, injection_hits_text]
+features: [price_ratio, known_wallet, injection_hits_text]
 params:
   C: 1.0
 threshold:

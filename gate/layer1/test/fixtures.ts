@@ -1,13 +1,12 @@
 // Builds GateInputs from contracts/tests/fixtures (fictional, test-only data).
 import { readFileSync } from "node:fs";
-import type { CrsResult, GateInput, KnownSeller, Listing, Mandate } from "../src/index.ts";
+import type { GateInput, KnownSeller, Listing, Mandate } from "../src/index.ts";
 
 const FIX = new URL("../../../contracts/tests/fixtures/", import.meta.url);
 const read = (name: string) => JSON.parse(readFileSync(new URL(name, FIX), "utf8"));
 
 interface Refs {
   known_sellers: KnownSeller[];
-  crs_results: CrsResult[];
   market_medians: { product_key: string; condition: string; median: number }[];
 }
 
@@ -22,7 +21,6 @@ export function toInput(listing: Listing, mandate: Mandate): GateInput {
     listing,
     references: {
       known_sellers: refs.known_sellers,
-      crs_result: refs.crs_results.find((c) => c.seller_id === listing.seller.id) ?? null,
       market_median: median?.median ?? null,
       pay_to_first_seen: null,
     },

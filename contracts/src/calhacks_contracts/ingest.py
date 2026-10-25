@@ -2,7 +2,6 @@
 
   contracts-ingest listings FILE.jsonl --source apify:ebay   # lines: Listing, or {"listing", "meta"?, "mandate"?}
   contracts-ingest known-sellers FILE.json                   # [KnownSeller, ...]
-  contracts-ingest crs FILE.json                             # [CrsResult, ...]
   contracts-ingest medians FILE.json --source NAME           # [{"product_key", "condition", "median", "n"}, ...]
   contracts-ingest stats                                     # document count per collection
 
@@ -14,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from calhacks_contracts.db import Repo, get_db
-from calhacks_contracts.gate import Case, CrsResult, KnownSeller, Mandate
+from calhacks_contracts.gate import Case, KnownSeller, Mandate
 from calhacks_contracts.listing import Listing, ListingMeta
 
 
@@ -55,7 +54,6 @@ def main(argv=None) -> int:
     p = sub.add_parser("listings"); p.add_argument("file"); p.add_argument("--source", required=True)
     p.add_argument("--max-price-factor", type=float, default=1.25); p.add_argument("--spend", type=float, default=100.0)
     sub.add_parser("known-sellers").add_argument("file")
-    sub.add_parser("crs").add_argument("file")
     p = sub.add_parser("medians"); p.add_argument("file"); p.add_argument("--source", required=True)
     sub.add_parser("stats")
     a = ap.parse_args(argv)
@@ -73,11 +71,6 @@ def main(argv=None) -> int:
             repo.put_known_seller(r)
             repo.touch_wallet(r.pay_to, "2000-01-01")
         out = {"known_sellers": len(rows)}
-    elif a.cmd == "crs":
-        rows = [CrsResult.model_validate(r) for r in json.loads(Path(a.file).read_text(encoding="utf-8"))]
-        for r in rows:
-            repo.put_crs(r)
-        out = {"crs_results": len(rows)}
     elif a.cmd == "medians":
         rows = json.loads(Path(a.file).read_text(encoding="utf-8"))
         built = _now()

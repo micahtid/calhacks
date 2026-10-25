@@ -27,7 +27,7 @@ PATH_KEYS = {"file_path", "path", "directory_path", "dir", "cwd", "target_file",
 LIST_PATH_KEYS = {"paths", "file_paths", "files"}
 PATTERN_KEYS = {"glob_pattern", "pattern", "glob"}
 CONTENT_KEYS = {"content", "new_string", "old_string", "patch", "input", "edits", "new_source"}
-HOLDOUT_TOKENS = ("calhacks-holdout", "holdout.key", "holdout.jsonl", "holdout.meta", "holdout.v2")
+HOLDOUT_TOKENS = ("calhacks-holdout", "holdout.key", "holdout.jsonl", "holdout.meta", "holdout.v2", "holdout.v3")
 ABS_PATH = re.compile(r"(?:\b[A-Za-z]:[\\/]|\\\\[^\\\s]|file://|~[\\/])")
 PARENT_SEG = re.compile(r"(?:^|[\\/])\.\.(?:[\\/]|$)")
 

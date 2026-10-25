@@ -16,7 +16,7 @@ MODELS_DIR = Path(os.environ.get("CALHACKS_MODELS", GATE_DIR / "models")).resolv
 DATA = Path(os.environ.get("CALHACKS_DATA", REPO / "data")).resolve()  # local logs only; listings are in MongoDB
 ROUNDS = DATA / "rounds"
 HOLDOUT = Path(os.environ.get("CALHACKS_HOLDOUT", REPO.parent / "calhacks-holdout")).resolve()
-HOLDOUT_FILE = HOLDOUT / "holdout.v2.enc"
+HOLDOUT_FILE = HOLDOUT / "holdout.v3.enc"
 HOLDOUT_KEY_FILE = HOLDOUT / "holdout.key"
 FACTORY_SETTINGS = REPO / "redteam" / "factory" / "settings.json"
 
@@ -35,7 +35,8 @@ PRICES = {
     HOLDOUT_MODEL: (0.30, 1.20),
 }
 
-BATCH_SIZE = 10          # LLM slots per Bitdeer call
+BATCH_SIZE = 3           # LLM slots per Bitdeer call (the models spend ~2.3k output tokens per slot, mostly reasoning)
+TOKENS_PER_SLOT = 5000   # max_tokens = slots * TOKENS_PER_SLOT; a too-small cap truncates the JSON
 CONCURRENCY = 16
 ROUND_BUDGET = {"usd": 5.0, "tokens": 3_000_000, "minutes": 45.0}  # C8, per round
 ROUND_WALL_SECONDS = int(ROUND_BUDGET["minutes"] * 60)

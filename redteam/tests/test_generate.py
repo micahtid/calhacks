@@ -38,17 +38,15 @@ def test_code_only_families_skip_the_llm_and_write_to_mongo(repo, fake_client):
                    client=fake_client())
     assert out["kept"] + out["dropped"] == 30 and out["kept"] >= 25
     llm = [s for s, _ in out["_items"] if s.gen.model]
-    assert all(s.answer_key.family == "legit_mixed_reviews" for s in llm)  # only LLM families reach Bitdeer
+    assert {s.answer_key.family for s in llm} <= {"legit_mixed_reviews", "legit_real_discount", "legit_rewrite"}  # only LLM families
     # listings collection holds only Listing fields; label lives in answer_keys
     doc = repo.db.listings.find_one({"_id": out["_items"][0][0].listing.listing_id})
     assert set(doc) == {"_id", *Listing.model_fields}
     fams = {k.family for k in repo.answer_keys({"_id": {"$regex": "^S1-S-tc"}})}
     assert "too_cheap" in fams and fams - {"too_cheap"} <= {"legit_plain", "legit_real_discount",
-                                                             "legit_new_verified_seller", "legit_mixed_reviews"}
+                                                             "legit_new_seller", "legit_mixed_reviews", "legit_rewrite"}
     assert set(repo.real_listing_ids()) == before
     assert repo.db.specs.find_one({"_id": "S-tc"})["round"] == 1
-    # simulated references were stored for synthetic sellers that needed them
-    assert repo.db.crs_results.count_documents({"source": "synthetic"}) >= 0
 
 
 def test_llm_spec_with_mock_client(repo, fake_client):
@@ -64,7 +62,9 @@ def test_llm_spec_with_mock_client(repo, fake_client):
     assert out["tokens"]["prompt_tokens"] == 100 * out["tokens"]["calls"]
 
 
-def test_missing_and_bad_slots_are_retried_once_then_dropped(repo, fake_client):
+def test_missing_and_bad_slots_are_retried_once_then_dropped(repo, fake_client, monkeypatch):
+    from redteam import generate
+    monkeypatch.setattr(generate, "BATCH_SIZE", 10)  # one batch, so the retry is the second call
     spec = {**SPEC, "spec_id": "S-r", "n": 5, "legit_ratio": 0}
     ids = [f"S1-S-r-{i:04d}" for i in range(5)]
     client = fake_client(drop={ids[0]}, bad_evidence={ids[1]})
@@ -73,6 +73,44 @@ def test_missing_and_bad_slots_are_retried_once_then_dropped(repo, fake_client):
     assert set(slot_ids(client.calls[1])) == {ids[0], ids[1]}
     assert out["kept"] == 4 and out["dropped"] == 1
     assert out["drops_by_family"] == {"prompt_injection": 1}
+
+
+def test_llm_batches_are_small_and_token_cap_scales(repo, fake_client):
+    from redteam.config import BATCH_SIZE, TOKENS_PER_SLOT
+    client = fake_client()
+    run_spec({**SPEC, "spec_id": "S-b", "n": 7, "legit_ratio": 0}, round_=1, r=repo, client=client, models=["m"])
+    assert all(len(slot_ids(c)) <= BATCH_SIZE for c in client.calls)
+    assert all(c["max_tokens"] == len(slot_ids(c)) * TOKENS_PER_SLOT for c in client.calls)
+
+
+def test_hidden_text_instruction_is_written_by_the_llm_and_hidden_by_code(repo, fake_client):
+    from redteam import mutate
+    out = run_spec({**SPEC, "spec_id": "S-h", "family": "hidden_text", "n": 6, "legit_ratio": 0}, round_=1, r=repo,
+                   client=fake_client(), models=["m"])
+    assert out["kept"] == 6
+    for s, _ in out["_items"]:
+        t, ev = s.listing.item.text, s.answer_key.attack_diff["item.text"]
+        assert any(ch in t for ch in mutate.ZERO_WIDTH) or any(ch in t for ch in mutate.HOMOGLYPHS.values())
+        assert "pre-approved" in mutate.unhide(t) and s.gen.model == "m"
+
+
+def test_offline_phrases_vary_and_still_validate(repo, monkeypatch):
+    import collections, random
+    from redteam import bitdeer, mutate
+    rng = random.Random(0)
+    for task in ("hidden_text", "legit_real_discount"):
+        phrases = [mutate.offline_phrase(task, rng) for _ in range(200)]
+        top = collections.Counter(phrases).most_common(1)[0][1]
+        assert top / len(phrases) <= 0.05, (task, top)
+    def no_key():
+        raise RuntimeError("no BITDEER_API_KEY")
+    monkeypatch.setattr(bitdeer, "make_client", no_key)
+    out = run_spec({**SPEC, "spec_id": "S-o", "family": "hidden_text", "n": 8, "legit_ratio": 0.5}, round_=1, r=repo)
+    fams = {s.answer_key.family for s, _ in out["_items"]}
+    assert "hidden_text" in fams and out["kept"] > 0  # offline pools, no Bitdeer needed
+    for s, _ in out["_items"]:
+        if s.answer_key.family == "legit_real_discount":
+            assert s.listing.item.text != repo.get_listing(s.answer_key.base_listing_id).item.text
 
 
 def test_generate_mode_rewrites_text_for_code_families(repo, fake_client):
@@ -110,3 +148,15 @@ def test_tally_counts_failures():
     t = bitdeer.Tally()
     t.fail()
     assert t.as_dict()["failures"] == 1
+
+
+def test_rewrites_must_keep_the_base_listing_shape():
+    from redteam import prompts
+    base, revs = "x" * 1000, ["a review"] * 5
+    for task in ("prompt_injection", "legit_rewrite"):  # the same band for scam and honest rewrites
+        assert not [e for e in prompts.problems(task, "mutate_real", "y" * 1100, revs, "y" * 10, base, revs)
+                    if "length" in e]
+        assert any("length" in e for e in prompts.problems(task, "mutate_real", "y" * 1600, revs, "y", base, revs))
+    assert any("reviews" in e for e in prompts.problems("fake_reviews", "mutate_real", base, ["r"] * 3, None, base, revs))
+    assert not prompts.problems("fake_reviews", "mutate_real", base, ["r"] * 5, None, base, revs)
+    assert not prompts.problems("fake_reviews", "mutate_real", base, ["r"] * 3, None, base, [])  # at least 3

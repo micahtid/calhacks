@@ -17,7 +17,7 @@ ANY = "*"
 FROM_IMPORTS: dict[str, set[str] | str] = {
     "__future__": {"annotations"},
     "calhacks_contracts": {"GateInput", "Listing", "Mandate", "References", "Seller", "Item", "Checkout",
-                           "KnownSeller", "CrsResult"},
+                           "KnownSeller"},
     "calhacks_contracts.families": {"injection_patterns", "allowlist"},
     "gatepy.registry": {"feature"},
     "gatepy.clock": {"days_since", "as_of"},

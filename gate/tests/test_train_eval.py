@@ -30,7 +30,7 @@ def test_lightgbm_trains_and_meets_fpr_rule(trained):
 
 def test_r0_baseline_trains(baseline):
     assert baseline["model_id"].startswith("r0-") and baseline["kind"] == "logreg"
-    assert baseline["features"] == ["price_ratio", "crs_verified", "injection_hits_text"]
+    assert baseline["features"] == ["price_ratio", "known_wallet", "injection_hits_text"]
     RoundMetrics.model_validate(baseline["val"])
 
 
@@ -59,14 +59,16 @@ def test_eval_rows_carry_gate_decisions(trained, models_dir, repo):
     l2 = [r for r in out["rows"] if r["decision"]["risk_score"] is not None]
     assert l2 and all(1 <= len(r["decision"]["top_reasons"]) <= 3 for r in l2)
     assert all(r["decision"]["model_version"] == trained["model_id"] for r in out["rows"])
-    assert all(len(r["decision"]["checks"]) == 11 for r in out["rows"])
+    assert all(len(r["decision"]["checks"]) == 10 for r in out["rows"])
 
 
 def test_per_family_has_layer1_families_fully_caught(trained, models_dir, repo):
     model = load(trained["model_id"], models_dir)
     m = RoundMetrics.model_validate(evaluate_examples(model, load_examples(repo), repo.reference_snapshot())["metrics"])
-    for fam in ("payment_mismatch", "lookalike_payto", "bait_and_switch", "product_switch", "unverified_seller"):
+    for fam in ("payment_mismatch", "bait_and_switch", "product_switch"):  # lookalike/unknown sellers under the cap reach Layer 2
         assert m.per_family[fam].value == 1.0, fam
+    # layer2_fpr counts only legit listings that pass Layer 1, so it never exceeds what the full Gate blocks
+    assert m.layer2_fpr is not None and m.layer2_fpr.n <= m.fpr.n and m.layer2_fpr.k <= m.fpr.k
 
 
 def test_risk_never_falls_as_price_falls(trained, models_dir, inputs):

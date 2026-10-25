@@ -34,7 +34,7 @@ LLM side (no wallet)            Code side (holds wallet)         Payment rails
 ---------------------           ------------------------         -------------
 You (goal + rules)              Gate (buy / skip)                Facilitator (x402.org)
 Scout (Bitdeer GLM)     ---->   Wallet (viem signer)     ---->   Base Sepolia (USDC)
-Listings (Apify crawler)        CRS (optional)
+Listings (Apify crawler)
                                 Storefronts (real + scam)
 Training loop: Factory (Fix Droid), Bitdeer (scam writer)
 ```
@@ -337,7 +337,7 @@ OpenAI-compatible at `https://api-inference.bitdeer.ai/v1`); it never touches mo
 - **One `Listing` shape** for real listings, synthetic listings and the Gate's input. A synthetic listing's answer key
   (label, family, attack diff) and generator info are stored in separate collections the Gate never reads.
 - **All data lives in MongoDB** (`redteam` database): listings, cases (mandates), answer keys, and the references the Gate
-  looks up itself: known sellers, CRS results, market medians, wallet first-seen dates.
+  looks up itself: known sellers, market medians, wallet first-seen dates.
 - **Getting real data in:**
 
   ```sh
@@ -345,15 +345,15 @@ OpenAI-compatible at `https://api-inference.bitdeer.ai/v1`); it never touches mo
   uv run contracts-ingest listings FILE.jsonl --source apify:ebay   # Listing per line
   uv run contracts-ingest known-sellers FILE.json
   uv run contracts-ingest medians FILE.json --source apify:ebay-sold
-  uv run contracts-ingest crs FILE.json                             # CRS stand-in
   uv run contracts-ingest stats
   uv run pytest                                                     # tests use mongomock, not Atlas
   ```
 
-- **Attack families** (`contracts/families.json`): Layer 1 catches payment mismatch, lookalike wallet, bait-and-switch,
-  product switch and unverified seller by rule. Layer 2 handles too-cheap, prompt injection, hidden text and fake reviews.
+- **Attack families** (`contracts/families.json`): Layer 1 catches payment mismatch, bait-and-switch and product
+  switch by rule. Layer 2 handles lookalike wallets and unknown sellers within the cap, too-cheap, prompt injection, hidden
+  text and fake reviews.
   `urgency_pressure` and `lookalike_domain` are held out of training entirely, for the final exam.
-- **Unknown sellers:** paid only if CRS-verified, and only up to `unknown_seller_cap_usd` ($100) in `contracts/allowlist.json`. $100 covers about 92% of the scraped listings.
+- **Seller trust:** a **known wallet** (on the known-seller list) is trusted. An **unknown wallet** is paid only up to `unknown_seller_cap_usd` ($100, `contracts/allowlist.json`), and Layer 2 then decides; $100 covers about 92% of the scraped listings. CRS is not used.
 
 On this network uv may need `UV_SYSTEM_CERTS=1` (TLS interception).
 
@@ -361,13 +361,14 @@ On this network uv may need `UV_SYSTEM_CERTS=1` (TLS interception).
 
 Two layers decide whether the wallet may pay; both must say yes. Details: `gate/README.md`.
 
-- **Layer 1** (`gate/layer1`, TypeScript, fixed rules that are never learned): checkout wallet matches `store.json`; wallet is
-  a known seller's **or** the seller is CRS-verified (CRS-only sellers capped at `unknown_seller_cap_usd`); 402 amount equals
+- **Layer 1** (`gate/layer1`, TypeScript, fixed rules that are never learned): checkout wallet matches `store.json`; a known
+  wallet, or an unknown wallet priced within `unknown_seller_cap_usd` ($100); 402 amount equals
   the price; price within max price and spend remaining; network and asset allowlisted; checkout item and product match the
   listing and the mandate; 402 timeout at most 120s. `node gate/layer1/src/cli.ts < gate_inputs.jsonl`. It is an npm
   workspace: `npm run test:gate-l1`; root `npm run build` / `npm run lint` typecheck it.
+  `L1_SELLER_UNTRUSTED` stays a valid (deprecated) `RuleId` only for the agent API's mock Gate; Layer 1 no longer runs it.
 - **Layer 2** (`gate/gatepy` + `gate/features`, Python): a LightGBM risk score that runs only when Layer 1 passes and can
-  only turn a buy into a skip. Features from issue #1: price vs median, CRS verification and age, known wallet and wallet age,
+  only turn a buy into a skip. Features from issue #1: price vs median, known wallet and wallet age,
   domain and wallet lookalikes, injection and hidden-text scores, review similarity. Each decision carries its top 3 reasons.
   Feature files are checked statically before import (`gatepy.sandbox`): no file, env, network or object-graph access.
 - **Data:** training and evaluation read listings, mandates and references from MongoDB (`MONGODB_DB_REDTEAM`); answer keys
@@ -381,9 +382,42 @@ Two layers decide whether the wallet may pay; both must say yes. Details: `gate/
 listings live in MongoDB through `calhacks-contracts`; nothing is read from local data files. Full command list:
 `redteam/README.md`.
 
+- **Scraped-listing snapshot** (`redteam.scrape_map`): reads `calhacks.listings` (read-only) and writes a frozen local
+  issue #1 snapshot (e.g. `scrape-v1`). It holds:
+  - placeholder wallets per seller
+  - brand + type product keys
+  - the top 10 reputable sellers as known wallets
+  - no wallet first-seen dates by default (no real history yet; `--wallet-history` restores the old heuristic for comparisons)
+  - medians from the training side (with a type-level fallback)
+  - a $500 budget per case
+  - a seller-level split: ~80% training bases, ~20% locked-test bases reserved for the holdout
+  `uv run --project redteam python -m redteam.scrape_map --out <dir> --as-of YYYY-MM-DD`
+- **Artifact audit** (`redteam.audit`): checks whether generated listings can be told apart from real ones by
+  anything other than the attack. Per family, a classifier on untouched traits (seller-name shape, wallet age,
+  review count and length, text length) reports a grouped-CV AUC and a permutation p-value; a family fails when
+  AUC > 0.6 and p < 0.05 (a tell the Gate could learn instead of the scam). Each family is compared with the real
+  listings it draws bases from. `uv run --project redteam python -m redteam.audit --store <local store dir>`
+- **Local dry runs** (`redteam.dryrun`): the full loop against a snapshot with no MongoDB. A file-backed store
+  (`REDTEAM_LOCAL_STORE`) is shared between the coordinator and the MCP server and saved after every tool call. The
+  holdout is built from the snapshot's locked-test listings (including those real listings, unmodified).
+  `REDTEAM_ATTACKER_KNOWLEDGE` and `REDTEAM_SEED` fix the attacker type and seed. Run each dry run from its own git
+  worktree, so the coordinator's feature edits are saved per round as diffs and never touch committed code:
+  ```sh
+  uv run --project redteam python -m redteam.dryrun init    --run DIR --snapshot SNAP [--seed N] [--knowledge white_box] [--all-known]
+  uv run --project redteam python -m redteam.dryrun holdout --run DIR [--per-family 60 --slice 20]
+  uv run --project redteam python -m redteam.dryrun round   --run DIR --round N [--max-listings 300]
+  uv run --project redteam python -m redteam.dryrun summary --run DIR   # summary.json + summary.md
+  ```
 - **Attack factory** (`redteam.generate`): an `AttackSpec` in, `SyntheticListing`s out to MongoDB. The main mode,
   `mutate_real`, copies a real listing and changes one thing in code (wallet, price, checkout id, product, seller,
-  domain, hidden text), recorded in the answer key's `attack_diff`. Families that need wording (prompt injection,
+  domain, hidden text), recorded in the answer key's `attack_diff`. `mutate.ALLOWED_DIFF` lists the only fields each
+  family may change and anything else is rejected, so a scam keeps its real seller; only seller-themed families
+  (unknown seller, new honest seller, lookalikes) get a new one, named in the style of real sellers on the same
+  marketplace (`mutate.styled_name`), never from a fixed pattern. Hidden-text instructions and honest discount reasons are worded by the LLM (code
+  still hides the instruction); without a Bitdeer client they come from large combinatorial pools, never a few fixed
+  sentences. Every LLM rewrite must keep the base listing's shape (text length within 0.7-1.4x, the same number of
+  reviews), and a `legit_rewrite` control family runs honest listings through the same prompt, so LLM-written style
+  shows up on both sides. Families that need wording (prompt injection,
   fake reviews, urgency, mixed reviews) get their text or reviews rewritten by Bitdeer (GLM-5.3-Flash and
   DeepSeek-V4.1-Flash in rotation). Bad LLM output is retried once, then dropped, and drops are counted per family.
 - **Holdout** (`redteam.holdout`): built once from the real listings, holding the two held-out families plus a slice
@@ -392,7 +426,7 @@ listings live in MongoDB through `calhacks-contracts`; nothing is read from loca
 - **Coordinator** (`redteam.coordinator`): one Factory Droid SDK session per round on Bitdeer DeepSeek-V4.1-Flash, with
   a GLM-5.3 attack-strategist droid. It sees the world only through the stdio MCP tools (`get_round_input`,
   `generate_attacks`, `score_round`, `inspect_failures`, `train_gate`, `eval_gate`, `promote_model`). A guard hook
-  limits edits to `gate/features/<name>.py` and `gate/train_config.yaml`, and Gate subprocesses never receive the holdout key. Promotion (validation recall up, false blocks ≤ 2%, no
+  limits edits to `gate/features/<name>.py` and `gate/train_config.yaml`, and Gate subprocesses never receive the holdout key. Promotion (validation recall up, Layer 2 false blocks ≤ 2% — Layer 1 policy blocks such as unknown wallets over the cap are reported separately, no
   family down more than 5 points) and the `RoundReport` numbers are computed in code.
 - **Gate backend:** the real Gate in `gate/` (path dependency). `REDTEAM_GATE=stub` selects a fast stand-in used by unit tests.
 

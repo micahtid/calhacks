@@ -38,7 +38,7 @@ class Gate:
         self.refs = refs if refs is not None else (repo.reference_snapshot() if use_db_refs else None)
 
     def refresh(self) -> None:
-        """Reload the reference snapshot (known sellers, CRS, medians, wallets) from MongoDB."""
+        """Reload the reference snapshot (known sellers, medians, wallets) from MongoDB."""
         if self.repo is not None:
             self.refs = self.repo.reference_snapshot()
 

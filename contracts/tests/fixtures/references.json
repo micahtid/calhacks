@@ -11,20 +11,6 @@
    "domain": "maplemarket.example"
   }
  ],
- "crs_results": [
-  {
-   "seller_id": "seller_fresh_09",
-   "verified": true,
-   "verified_at": "2026-10-01",
-   "source": "stub"
-  },
-  {
-   "seller_id": "seller_quick_77",
-   "verified": true,
-   "verified_at": "2026-10-20",
-   "source": "stub"
-  }
- ],
  "market_medians": [
   {
    "product_key": "headphones-sony-wh1000xm5-black",

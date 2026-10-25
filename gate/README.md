@@ -6,7 +6,7 @@ the listing the Gate fetched itself + references it looked up itself); the outpu
 
 | Layer | Where | What |
 |---|---|---|
-| 1 | `layer1/` (TypeScript) | Fixed rules, never learned: 402 wallet matches `store.json`; wallet known **or** seller CRS-verified (CRS-only capped at `unknown_seller_cap_usd`); amount equals price; max price; spend remaining; network and asset allowlist; checkout item; product matches the mandate; 402 timeout |
+| 1 | `layer1/` (TypeScript) | Fixed rules, never learned: 402 wallet matches `store.json`; a known wallet, or an unknown wallet priced within `unknown_seller_cap_usd` ($100); amount equals price; max price; spend remaining; network and asset allowlist; checkout item; product matches the mandate; 402 timeout |
 | 2 | `gatepy/` + `features/` (Python) | LightGBM risk score, run only when Layer 1 passes and only able to turn buy into skip. Monotone in price and trust signals, fixed threshold, top-3 reasons |
 
 ## Data
@@ -21,7 +21,7 @@ never writes to MongoDB.
 | Module | Features |
 |---|---|
 | `price.py` | `price_ratio` (price / median, neutral 1.0 without a median), `price_too_low`, `has_median` |
-| `trust.py` | `known_wallet`, `crs_verified`, `crs_days_verified`, `payto_age_days` |
+| `trust.py` | `known_wallet`, `payto_age_days` |
 | `domain.py` | `domain_known`, `domain_similarity_to_known` (exact match excluded) |
 | `payment.py` | `payto_lookalike` (same first/last 4 hex as a known wallet), `payto_affix_match` |
 | `injection.py` | `injection_hits_text`, `injection_hits_reviews`, `imperative_to_agent` (after removing invisible characters and NFKC folding) |
@@ -55,7 +55,7 @@ cd gate && uv run pytest                                # mongomock, never Atlas
 
 - In-process scoring (used for the holdout, which never enters MongoDB):
   `gatepy.evaluate.evaluate(model, [(Listing, Case | None, AnswerKey), ...], refs)` where `refs` is a
-  `calhacks_contracts.db.ReferenceSet` (e.g. `repo.reference_snapshot().overlay(crs=..., wallets=...)`).
+  `calhacks_contracts.db.ReferenceSet` (e.g. `repo.reference_snapshot().overlay(wallets=...)`).
 - `gatepy.evaluate.evaluate_repo(model_id, repo, split, ids, query, with_rows, models_dir)` is `gate-eval` as a function,
   for callers that already hold a `Repo` (e.g. an in-memory test database).
 - `gatepy.model_io.load(model_id)`, `set_promoted(model_id, val=..., holdout=...)`; the promotion rule (C6) belongs to redteam.

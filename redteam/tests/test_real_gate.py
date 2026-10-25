@@ -118,8 +118,8 @@ def test_stdio_round_on_the_real_gate(repo, fake_client, real):
 
                 async def call(name, args):
                     return json.loads((await s.call_tool(name, args)).content[0].text)
-                for fam in ("too_cheap", "payment_mismatch", "hidden_text"):
-                    out[fam] = await call("generate_attacks", {"spec": {"family": fam, "n": 40}})
+                for fam, n in (("too_cheap", 40), ("payment_mismatch", 40), ("hidden_text", 20)):
+                    out[fam] = await call("generate_attacks", {"spec": {"family": fam, "n": n}})
                 out["train"] = await call("train_gate", {})
                 out["promote"] = await call("promote_model", {"model_id": out["train"]["model_id"]})
                 out["score"] = await call("score_round", {})

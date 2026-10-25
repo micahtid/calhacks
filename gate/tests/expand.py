@@ -5,7 +5,7 @@ Fictional sellers and products. Never used outside the test suite and never writ
 import json
 import random
 
-from calhacks_contracts import AnswerKey, Case, CrsResult, GenInfo, KnownSeller, Listing, Mandate, SyntheticListing
+from calhacks_contracts import AnswerKey, Case, GenInfo, KnownSeller, Listing, Mandate, SyntheticListing
 from calhacks_contracts.db import Repo
 from calhacks_contracts.listing import ListingMeta
 
@@ -64,12 +64,11 @@ def seed(repo: Repo, n_real: int = 90, n_synth: int = 260, seed_: int = 1) -> di
         repo.touch_wallet(k.pay_to, "2020-01-01")
     for pk, cond, med, _ in PRODUCTS:
         repo.put_median(pk, cond, med, 30, "test", "2026-10-24")
-    crs_sellers = []
+    small_sellers = []  # unknown wallets with some history, selling under the cap
     for i in range(12):
-        sid, w = f"seller_crs_{i:02d}", _wallet(rng)
-        repo.put_crs(CrsResult(seller_id=sid, verified=True, verified_at=_date(rng, 2024, 2026), source="stub"))
+        sid, w = f"seller_small_{i:02d}", _wallet(rng)
         repo.touch_wallet(w, _date(rng, 2023, 2026))
-        crs_sellers.append((sid, f"crs{i:02d}.example", w))
+        small_sellers.append((sid, f"small{i:02d}.example", w))
 
     def real(i: int) -> tuple[Listing, Case]:
         if rng.random() < 0.7:
@@ -77,10 +76,10 @@ def seed(repo: Repo, n_real: int = 90, n_synth: int = 260, seed_: int = 1) -> di
             pk, cond, med, title = rng.choice(PRODUCTS)
             seller = {"id": k.seller_id, "domain": k.domain, "pay_to": k.pay_to}
         else:
-            sid, dom, w = rng.choice(crs_sellers)
+            sid, dom, w = rng.choice(small_sellers)
             pk, cond, med, title = rng.choice(CHEAP)
             seller = {"id": sid, "domain": dom, "pay_to": w}
-        price = round(min(med * rng.uniform(0.85, 1.15), CAP if seller["id"].startswith("seller_crs") else 1e9), 2)
+        price = round(min(med * rng.uniform(0.85, 1.15), CAP if seller["id"].startswith("seller_small") else 1e9), 2)
         lid = f"RT-{i:04d}"
         l = Listing(listing_id=lid, seller=seller,
                     item={"id": f"{pk}-{i}", "product_key": pk, "condition": cond, "price": price,
@@ -96,8 +95,8 @@ def seed(repo: Repo, n_real: int = 90, n_synth: int = 260, seed_: int = 1) -> di
         repo.put_real(l, ListingMeta(listing_id=l.listing_id, source="test", fetched_at="2026-10-01"), c)
 
     families = ["too_cheap", "prompt_injection", "hidden_text", "fake_reviews", "payment_mismatch",
-                "lookalike_payto", "bait_and_switch", "product_switch", "unverified_seller",
-                "legit_real_discount", "legit_new_verified_seller", "legit_mixed_reviews", "legit_plain"]
+                "lookalike_payto", "bait_and_switch", "product_switch", "unknown_seller",
+                "legit_real_discount", "legit_new_seller", "legit_mixed_reviews", "legit_plain"]
     synth = []
     for i in range(n_synth):
         fam = families[i % len(families)]
@@ -153,17 +152,16 @@ def seed(repo: Repo, n_real: int = 90, n_synth: int = 260, seed_: int = 1) -> di
             other = rng.choice([p for p in PRODUCTS if p[0] != d["item"]["product_key"]])
             d["item"]["product_key"] = other[0]
             diff["item.product_key"] = f"→ {other[0]}"
-        elif fam == "unverified_seller":
+        elif fam == "unknown_seller":
             w = _wallet(rng)
             d["seller"] = {"id": f"seller_new_{i}", "domain": f"new{i}.example", "pay_to": w}
             d["checkout"]["pay_to"] = w
-            diff["seller"] = "unverified"
+            diff["seller"] = "new unknown wallet"
         elif fam == "legit_real_discount":
             set_price(round(med * rng.uniform(0.6, 0.85), 2))
             d["item"]["text"] += " Priced to sell: missing the original box."
-        elif fam == "legit_new_verified_seller":
-            sid, w = f"seller_newcrs_{i}", _wallet(rng)
-            repo.put_crs(CrsResult(seller_id=sid, verified=True, verified_at=_date(rng, 2026, 2026), source="stub"))
+        elif fam == "legit_new_seller":
+            sid, w = f"seller_newhonest_{i}", _wallet(rng)
             repo.touch_wallet(w, "2026-10-01")
             pk, cond, cmed, title = rng.choice(CHEAP)
             p = round(min(cmed * rng.uniform(0.85, 1.1), CAP), 2)

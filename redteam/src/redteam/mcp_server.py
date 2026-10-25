@@ -19,8 +19,11 @@ from collections import defaultdict
 from calhacks_contracts.families import holdout_families
 
 from redteam import gate_client, holdout, promotion, roundstate, scoring, store
-from redteam.config import BULK_MODELS, ROUND_BUDGET, legit_families, round_dir, scam_families
+from redteam.config import BULK_MODELS, ROUND_BUDGET, legit_families, needs_llm, round_dir, scam_families
 from redteam.generate import SpecError, run_spec
+
+MAX_CALL_LISTINGS = 60   # per generate_attacks call
+MAX_CALL_LLM = 24        # listings per call that need Bitdeer text rewrites (~3 per request, run in parallel)
 
 NOT_BUILT = "not available: the storefront scam-store route (plan A4/B6) isn't built yet; judge offline instead"
 
@@ -70,10 +73,13 @@ def generate_attacks(spec: dict) -> dict:
     mode (mutate_real|generate), base_listing_ids, target_weakness, attacker_knowledge (blind|white_box), model,
     temperature. Returns counts, drops per family and cost."""
     r = current_round()
-    spec = dict(spec or {})
+    spec = {k: v for k, v in dict(spec or {}).items() if v is not None}  # null means "use the default"
     spec.setdefault("spec_id", f"R{r}-{spec.get('family', 'x')}-{int(time.time() * 1000) % 10 ** 8}")
     spec.setdefault("mode", "mutate_real")
     spec.setdefault("legit_ratio", 0.4)
+    forced = os.environ.get("REDTEAM_ATTACKER_KNOWLEDGE")  # dry runs: force blind or white_box attackers
+    if forced:
+        spec["attacker_knowledge"] = forced
     used = _budget(r)
     if used["tokens"] >= ROUND_BUDGET["tokens"] or used["usd"] >= ROUND_BUDGET["usd"]:
         return _log("generate_attacks", spec, {"error": f"round {r} generation budget exhausted: {used}"})
@@ -83,13 +89,26 @@ def generate_attacks(spec: dict) -> dict:
         return _log("generate_attacks", spec, {"error": f"round {r} listing cap {cap} reached "
                                                         f"({used['listings']} generated); request at most "
                                                         f"{max(0, cap - used['listings'])}"})
+    # Keep every call well under the MCP client's request timeout: a timed-out call makes droid restart this server.
+    try:
+        from redteam.generate import parse_spec, plan_families
+        parsed = parse_spec(spec)
+        planned = plan_families(parsed, __import__("random").Random(0))
+        n_llm = len(planned) if parsed.mode == "generate" else sum(needs_llm(f) for f in planned)
+    except SpecError:
+        n_llm = 0  # run_spec reports the validation error below
+        parsed = None
+    if parsed and (parsed.n > MAX_CALL_LISTINGS or n_llm > MAX_CALL_LLM):
+        return _log("generate_attacks", spec, {"error": (
+            f"spec too large for one call ({parsed.n} listings, {n_llm} needing text rewrites); split it into calls of "
+            f"at most {MAX_CALL_LISTINGS} listings with at most {MAX_CALL_LLM} text rewrites each, one call at a time")})
     white_box = None
     if spec.get("attacker_knowledge") == "white_box":
         model_id = promotion.current()["model_id"]
         reasons = [f"{t.feature}={t.value}" for m in roundstate.val_misses(model_id, 20) for t in m.top_reasons]
         white_box = {"features": roundstate.current_model_features(model_id), "reasons": reasons}
     try:
-        out = run_spec(spec, round_=r, white_box=white_box,
+        out = run_spec(spec, round_=r, white_box=white_box, seed=int(os.environ.get("REDTEAM_SEED", "0")),
                        token_budget=ROUND_BUDGET["tokens"] - used["tokens"])
     except SpecError as e:
         return _log("generate_attacks", spec, {"error": str(e)})
@@ -147,8 +166,9 @@ def inspect_failures(round: int | None = None, limit: int = 12) -> dict:
 
 
 def train_gate(round: int | None = None) -> dict:
-    """Train a candidate Gate on every train-split listing up to this round (holdout families never included)."""
-    r = current_round() if round is None else round
+    """Train a candidate Gate on every train-split listing so far (holdout families never included). Models are
+    always labelled with the current round."""
+    r = current_round()
     out = gate_client.train(r)
     if not out.get("error"):
         store.repo().db.rounds.update_one({"_id": current_round()}, {"$push": {"candidates": out["model_id"]}},
@@ -203,6 +223,8 @@ def _jsonify(fn):
             return json.dumps(fn(*a, **kw), default=str)
         except Exception as e:  # never crash the server on one bad call
             return json.dumps({"error": f"{type(e).__name__}: {e}"})
+        finally:
+            store.flush()  # local dry runs: persist after every tool call (no-op against MongoDB)
     wrapper.__signature__ = inspect.signature(fn).replace(return_annotation=str)
     wrapper.__annotations__ = {**fn.__annotations__, "return": str}
     return wrapper

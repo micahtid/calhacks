@@ -1,44 +1,5 @@
 {
   "$defs": {
-    "CrsResult": {
-      "additionalProperties": false,
-      "properties": {
-        "seller_id": {
-          "title": "Seller Id",
-          "type": "string"
-        },
-        "verified": {
-          "title": "Verified",
-          "type": "boolean"
-        },
-        "verified_at": {
-          "anyOf": [
-            {
-              "pattern": "^\\d{4}-\\d{2}-\\d{2}",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "When verification was granted",
-          "title": "Verified At"
-        },
-        "source": {
-          "default": "crs",
-          "description": "'crs' for the real API, 'stub' for the stand-in collection",
-          "title": "Source",
-          "type": "string"
-        }
-      },
-      "required": [
-        "seller_id",
-        "verified"
-      ],
-      "title": "CrsResult",
-      "type": "object"
-    },
     "KnownSeller": {
       "additionalProperties": false,
       "properties": {
@@ -131,17 +92,6 @@
           },
           "title": "Known Sellers",
           "type": "array"
-        },
-        "crs_result": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CrsResult"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         },
         "market_median": {
           "anyOf": [

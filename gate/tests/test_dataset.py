@@ -12,7 +12,7 @@ def test_load_examples_from_mongo(repo):
     ex = load_examples(repo)
     assert len(ex) == 350
     assert [e.id for e in ex] == sorted(e.id for e in ex)
-    assert {e.key.family for e in ex} >= {"real", "too_cheap", "legit_new_verified_seller"}
+    assert {e.key.family for e in ex} >= {"real", "too_cheap", "legit_new_seller"}
     inputs = to_inputs(ex[:5], repo.reference_snapshot())
     assert all(x.references.known_sellers for x in inputs)
 
