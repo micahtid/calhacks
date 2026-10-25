@@ -9,6 +9,59 @@ the listing the Gate fetched itself + references it looked up itself); the outpu
 | 1 | `layer1/` (TypeScript) | Fixed rules, never learned: 402 wallet matches `store.json`; a known wallet, or an unknown wallet priced within `unknown_seller_cap_usd` ($100); amount equals price; max price; spend remaining; network and asset allowlist; checkout item; product matches the mandate; 402 timeout |
 | 2 | `gatepy/` + `features/` (Python) | LightGBM risk score, run only when Layer 1 passes and only able to turn buy into skip. Monotone in price and trust signals, fixed threshold, top-3 reasons |
 
+## Deployed model: r2-f0bfbd
+
+The Gate service ships `r2-f0bfbd` (`../gates/CURRENT`). It was promoted in round 2 of seed 1 of a three-seed red-team
+validation. It was the only candidate of 9 across the three seeds to beat the baseline (`r0-ac1d79`) under
+coverage-aware promotion, with about 25 validation scams per family. Seeds 2 and 3 kept the baseline. It was trained on
+804 rows using 21 features: the 17 below plus `payment_coercion`, `untrusted_deep_discount`, `review_paraphrase_mass`
+and `review_dup_long_frac`. Its threshold is 0.857, set on out-of-fold scores (5 folds by base listing) of the legit
+train and calibrate rows. Full card: `../gates/r2-f0bfbd/CARD.md`; every version: `../gates/history.json`.
+
+Benchmark: a fixed test set of 444 rows built from locked-test listings, never trained on, scored on both layers.
+Brackets are 95% cluster-bootstrap intervals over base listings.
+
+| Metric | Baseline r0-ac1d79 | **r2-f0bfbd** | n |
+|---|---|---|---|
+| Accuracy (seen scams + legit) | 86.9% [83–90] | **91.8%** [89–94] | 389 |
+| Scams caught, seen families | 75.6% [68–83] | **88.1%** [81–93] | 160 |
+| Honest listings skipped by Layer 2 | 1.4% [0–3] | 1.8% [0–4] | 229 |
+| Honest listings skipped by Layer 1 ($100 unknown-seller cap) | 3.9% [2–7] | 3.9% [2–7] | 229 |
+| Real scraped listings skipped (both layers) | 7.6% [4–13] | 9.1% [4–14] | 132 |
+| Layer 2 risk AUC | 0.941 | **0.954** | |
+| Scams caught, held-out families (`urgency_pressure`, `lookalike_domain`) | 8.6% [0–21] | 11.4% [3–22] | 35 |
+| `unknown_seller` scams caught (policy-bounded, within the $100 cap) | 5.0% | 0.0% | 20 |
+
+Skip rate by scam family (20 test rows each, except `urgency_pressure` with 15):
+
+| Family | Baseline | r2-f0bfbd |
+|---|---|---|
+| `bait_and_switch`, `hidden_text`, `lookalike_payto`, `payment_mismatch`, `product_switch` | 100% | 100% |
+| `fake_reviews` | 35% | **85%** |
+| `prompt_injection` | 45% | **85%** |
+| `too_cheap` | 25% | 35% |
+| `urgency_pressure` (held out) | 7% | 27% |
+| `lookalike_domain` (held out) | 10% | 0% |
+| `unknown_seller` (policy-bounded) | 5% | 0% |
+
+Honest families stay at or near zero. `legit_mixed_reviews`, `legit_new_seller` and `legit_plain` are at 0%,
+`legit_real_discount` fell from 11% to 0%, and `legit_rewrite` rose from 0% to 6%.
+
+On the encrypted operator holdout (122 scams generated with different models and never shown to the coordinator), the
+results are:
+
+| Holdout metric | r2-f0bfbd | Baseline |
+|---|---|---|
+| Recall | 54.1% | 53.3% |
+| Seen families | 82.5% | 77.5% |
+| Held-out families | 0.0% | 7.1% |
+| Layer 2 false blocks | 2.1% | 0.7% |
+
+Limits:
+- Families the coordinator never trained against are still mostly missed, so new scam types need new red-team rounds.
+- `unknown_seller` scams under $100 pass by design. Only Layer 1's cap bounds what they can take, so they are
+  reported apart from recall.
+
 ## Data
 
 Everything is read from MongoDB through `calhacks_contracts.db.Repo` (`MONGODB_URI` from `.env.local`, database
