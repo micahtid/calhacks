@@ -93,8 +93,10 @@ uv run --project redteam python -m redteam.plant --dry-run     # counts and one 
 uv run --project redteam python -m redteam.plant [--rate 0.05] [--seed 1]
 uv run --project redteam python -m redteam.plant --key         # answer key as JSONL (id, marketplace, family, diff)
 uv run --project redteam python -m redteam.plant --undo        # restore every planted listing exactly
-uv run --project redteam python -m redteam.plant --only ebay-227458194789=too_cheap ...   # chosen listings, on top of the rest
+uv run --project redteam python -m redteam.plant --only ebay-227458194789=too_cheap ... [--loud]   # chosen listings, on top of the rest
 ```
+
+`--only` re-plants a listing that is already planted from its original. `--loud` plants the unsubtle version of each family for demos: 5-8% of median, three injection sentences plus one per review, three pressure lines. Three of the five demo listings are planted loud, after the subtle versions scored under the Gate's threshold.
 
 Planting refuses to run while listings are already marked; `--undo` first. Test: `redteam/tests/test_plant.py`.
 
