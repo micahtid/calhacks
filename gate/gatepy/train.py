@@ -3,7 +3,11 @@
   gate-train --round N [--config gate/train_config.yaml] [--query JSON] [--out gate/models]
   -> {"model_id", "round", "kind", "features", "n_train", "n_val", "threshold", "val": RoundMetrics}
 
-Training rows: split_of(listing_id) == "train", holdout families refused. `--query` filters answer_keys.
+Rows are split by base listing (calhacks_contracts.splits). The model is fitted on train + calibrate rows that pass
+Layer 1. The threshold is picked on out-of-fold scores of those same rows (OOF_FOLDS folds grouped by base listing:
+every row is scored by a model that never saw its base listing), so it rests on every legit row rather than the few
+dozen in calibrate alone and a single borderline listing can't swing it. Val metrics are reported on val, which
+neither the fit nor the threshold touches. Holdout families are refused. `--query` filters answer_keys.
 """
 import argparse
 import hashlib
@@ -27,10 +31,10 @@ from gatepy.model_io import from_meta, save
 from gatepy.registry import Feature, discover, feature_code_hash, select, self_test
 from gatepy.sandbox import FeaturePolicyError
 from gatepy.selftest import fixture_inputs
-from gatepy.splits import split_of
 
 DEFAULT_CONFIG = GATE_DIR / "train_config.yaml"
 SELF_TEST_SAMPLE = 50
+OOF_FOLDS = 5
 
 
 def fit_lightgbm(X, y, feats: list[Feature], cfg: dict) -> dict:
@@ -84,6 +88,24 @@ def pick_threshold(risk_legit: np.ndarray, max_fpr: float) -> float:
     return float(min(1.0, desc[allowed] + 1e-9))
 
 
+def oof_risk(kind: str, X: np.ndarray, y: np.ndarray, groups: list[str], feats: list[Feature], cfg: dict,
+             folds: int = OOF_FOLDS) -> np.ndarray:
+    """Out-of-fold risk: rows are dealt into folds by base listing; each fold is scored by a model fitted on the others.
+    Rows of a fold whose training part lacks a class stay NaN."""
+    uniq = sorted(set(groups), key=lambda g: hashlib.sha256(g.encode()).hexdigest())
+    fold_of = {g: i % folds for i, g in enumerate(uniq)}
+    f = np.array([fold_of[g] for g in groups])
+    risk = np.full(len(y), np.nan)
+    for k in range(folds):
+        fit_ix, score_ix = np.where(f != k)[0], np.where(f == k)[0]
+        if len(score_ix) == 0 or len(set(y[fit_ix])) < 2:
+            continue
+        m = from_meta({"kind": kind, "features": [x.name for x in feats], "threshold": 0.5,
+                       **FITTERS[kind](X[fit_ix], y[fit_ix], feats, cfg)})
+        risk[score_ix] = m.predict_risk(X[score_ix])
+    return risk
+
+
 def train(round_: int, config: Path = DEFAULT_CONFIG, query: dict | None = None, out: Path = MODELS,
           repo: Repo | None = None) -> dict:
     config = Path(config)
@@ -110,8 +132,9 @@ def train(round_: int, config: Path = DEFAULT_CONFIG, query: dict | None = None,
         raise GateInputError("feature self-test failed: " + "; ".join(errors[:5]))
 
     l1 = run_layer1(inputs)
-    split = [split_of(e.id) for e in examples]
-    tr = [i for i in range(len(examples)) if split[i] == "train" and passed(l1[i])]
+    split = [e.split for e in examples]
+    tr = [i for i in range(len(examples)) if split[i] in ("train", "calibrate") and passed(l1[i])]
+    cal = [i for i in range(len(examples)) if split[i] == "calibrate"]
     va = [i for i in range(len(examples)) if split[i] == "val"]
     y = np.array([e.key.label == "scam" for e in examples], dtype=int)
     if len(set(y[tr])) < 2:
@@ -129,16 +152,25 @@ def train(round_: int, config: Path = DEFAULT_CONFIG, query: dict | None = None,
         "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "as_of": as_of().isoformat(), "query": query or {},
         "val_metrics": None,
-        "threshold_rule": {"max_fpr": max_fpr, "on": "val legit rows that pass Layer 1"},
-        "n_train": len(tr), "n_val": len(va),
+        "threshold_rule": {"max_fpr": max_fpr, "on": None},
+        "n_train": len(tr), "n_calibrate": len(cal), "n_val": len(va),
         "config_source": cfg_src, "config_is_default": config.resolve() == DEFAULT_CONFIG.resolve(),
         "feature_sources": {p.name: p.read_text(encoding="utf-8") for p in sorted((GATE_DIR / "features").glob("*.py"))},
     }
     model = from_meta(meta)
 
-    # Threshold on validation legit rows that reach Layer 2; fall back to training legit rows if val has none.
-    va_l2_legit = [i for i in va if passed(l1[i]) and y[i] == 0] or [i for i in tr if y[i] == 0]
-    risk = model.predict_risk(featurize([inputs[i] for i in va_l2_legit], feats))
+    # Threshold on out-of-fold scores of the fitted rows' legit part (never on val), so val stays an honest estimate.
+    groups = [examples[i].key.base_listing_id or examples[i].id for i in tr]
+    oof = oof_risk(kind, X, y[tr], groups, feats, cfg)
+    legit = [j for j in range(len(tr)) if y[tr][j] == 0 and not np.isnan(oof[j])]
+    if legit:
+        meta["threshold_rule"]["on"] = f"out-of-fold scores ({OOF_FOLDS} folds by base listing) of legit train+calibrate rows"
+        risk = oof[legit]
+    else:
+        legit = [j for j in range(len(tr)) if y[tr][j] == 0]
+        meta["threshold_rule"]["on"] = "in-sample legit rows (fallback: no out-of-fold scores)"
+        risk = model.predict_risk(X[legit]) if legit else np.array([])
+    meta["threshold_rule"]["n"] = len(legit)
     meta["threshold"] = pick_threshold(risk, max_fpr)
 
     digest = hashlib.sha256(json.dumps([meta["booster"], meta["coef"], meta["threshold"], meta["train_data_hash"],

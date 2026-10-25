@@ -13,16 +13,19 @@ import functools
 import inspect
 import json
 import os
+import threading
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 
-from calhacks_contracts.families import holdout_families
 
 from redteam import gate_client, holdout, promotion, roundstate, scoring, store
-from redteam.config import BULK_MODELS, ROUND_BUDGET, legit_families, needs_llm, round_dir, scam_families
+from redteam.config import (BULK_MODELS, FAMILY_ROUND_CAP, MAX_TRAIN_CALLS, ROUND_BUDGET, legit_families, needs_llm,
+                            round_dir, scam_families)
 from redteam.generate import SpecError, run_spec
 
 MAX_CALL_LISTINGS = 60   # per generate_attacks call
+CALL_TIME_BUDGET_S = 120.0  # droid fails an MCP call at 180 s and the server is lost for the round; stay well under
+_GEN_LOCK = threading.Lock()  # one generation at a time: parallel calls slow each other past droid's limit
 MAX_CALL_LLM = 24        # listings per call that need Bitdeer text rewrites (~3 per request, run in parallel)
 
 NOT_BUILT = "not available: the storefront scam-store route (plan A4/B6) isn't built yet; judge offline instead"
@@ -52,6 +55,22 @@ def _add_budget(r: int, tokens: int, usd: float, listings: int) -> dict:
     return b
 
 
+def _time_left() -> float | None:
+    """Seconds until this round's tool window closes (REDTEAM_ROUND_DEADLINE, set by the coordinator), or None."""
+    d = os.environ.get("REDTEAM_ROUND_DEADLINE")
+    return float(d) - time.time() if d else None
+
+
+def _closed(tool: str, args: dict, needs: float):
+    """An error result when fewer than `needs` seconds are left in the round's window, else None."""
+    left = _time_left()
+    if left is not None and left < needs:
+        return _log(tool, args, {"error": (
+            "this round's time is up: no more generation or training. If you have a candidate that was not yet "
+            "submitted, call promote_model on it; then write your CoordinatorOutput.")})
+    return None
+
+
 def _round_ids(r: int) -> list[str]:
     return store.listing_ids(store.repo(), rounds=[r], include_real=False)
 
@@ -60,10 +79,14 @@ def _round_ids(r: int) -> list[str]:
 def get_round_input() -> dict:
     """The RoundInput for this round (issue #1), built by code. Start every round here."""
     r = current_round()
-    ri = roundstate.build_round_input(r)
-    out = ri.model_dump(mode="json")
+    # Built by the coordinator before the session: a cold build can outlast droid's 180 s tool limit.
+    cached = round_dir(r) / "round_input.json"
+    if cached.exists():
+        out = json.loads(cached.read_text(encoding="utf-8"))
+    else:
+        out = roundstate.build_round_input(r).model_dump(mode="json")
     out["_help"] = {"attack_families": scam_families(), "legit_families": legit_families(),
-                    "reserved_families": sorted(holdout_families()), "generator_models": BULK_MODELS,
+                    "generator_models": BULK_MODELS,
                     "generation_used": _budget(r), "real_listings": len(store.repo().real_listing_ids())}
     return _log("get_round_input", {}, out)
 
@@ -71,7 +94,23 @@ def get_round_input() -> dict:
 def generate_attacks(spec: dict) -> dict:
     """Order test listings with an AttackSpec (issue #1): spec_id, family (or legit_hard), n, legit_ratio,
     mode (mutate_real|generate), base_listing_ids, target_weakness, attacker_knowledge (blind|white_box), model,
-    temperature. Returns counts, drops per family and cost."""
+    temperature. Returns counts, drops per family and cost. Send one call at a time: a call made while another is
+    running is refused at once. A call returns within about two minutes with whatever finished; slots it had no
+    time for are listed as dropped ("call time budget reached") and can be requested again."""
+    shut = _closed("generate_attacks", dict(spec or {}), CALL_TIME_BUDGET_S + 30)
+    if shut:
+        return shut
+    if not _GEN_LOCK.acquire(blocking=False):
+        return _log("generate_attacks", dict(spec or {}), {"error": (
+            "another generate_attacks call is still running; send generate_attacks calls one at a time and wait for "
+            "each to return")})
+    try:
+        return _generate_attacks(spec)
+    finally:
+        _GEN_LOCK.release()
+
+
+def _generate_attacks(spec: dict) -> dict:
     r = current_round()
     spec = {k: v for k, v in dict(spec or {}).items() if v is not None}  # null means "use the default"
     spec.setdefault("spec_id", f"R{r}-{spec.get('family', 'x')}-{int(time.time() * 1000) % 10 ** 8}")
@@ -98,6 +137,14 @@ def generate_attacks(spec: dict) -> dict:
     except SpecError:
         n_llm = 0  # run_spec reports the validation error below
         parsed = None
+    if parsed:
+        have = Counter(k.family for k in store.repo().answer_keys({"_id": {"$in": _round_ids(r)}}))
+        want = Counter(f for f in planned if f in scam_families())
+        over = {f: max(0, FAMILY_ROUND_CAP - have[f]) for f in want if have[f] + want[f] > FAMILY_ROUND_CAP}
+        if over:
+            return _log("generate_attacks", spec, {"error": (
+                f"per-family cap: at most {FAMILY_ROUND_CAP} scams of one family per round "
+                f"(room left: {over}); spread this round's attacks over more families")})
     if parsed and (parsed.n > MAX_CALL_LISTINGS or n_llm > MAX_CALL_LLM):
         return _log("generate_attacks", spec, {"error": (
             f"spec too large for one call ({parsed.n} listings, {n_llm} needing text rewrites); split it into calls of "
@@ -109,7 +156,7 @@ def generate_attacks(spec: dict) -> dict:
         white_box = {"features": roundstate.current_model_features(model_id), "reasons": reasons}
     try:
         out = run_spec(spec, round_=r, white_box=white_box, seed=int(os.environ.get("REDTEAM_SEED", "0")),
-                       token_budget=ROUND_BUDGET["tokens"] - used["tokens"])
+                       token_budget=ROUND_BUDGET["tokens"] - used["tokens"], time_budget=CALL_TIME_BUDGET_S)
     except SpecError as e:
         return _log("generate_attacks", spec, {"error": str(e)})
     for k in ("_items", "_refs", "_dropped"):
@@ -120,7 +167,8 @@ def generate_attacks(spec: dict) -> dict:
 
 
 def score_round(round: int | None = None) -> dict:
-    """Last promoted model vs. this round's fresh attacks: the red team's 'attack success' (before retraining)."""
+    """The promoted model vs. this round's fresh attacks so far (a working view for the coordinator; the round's
+    recorded attack success is computed once by code at the end of the round, with the model promoted at its start)."""
     r = current_round() if round is None else round
     model_id = promotion.current()["model_id"]
     if not model_id:
@@ -132,7 +180,6 @@ def score_round(round: int | None = None) -> dict:
     if m.get("error"):
         return _log("score_round", {"round": r}, m)
     m["attack_success"] = builtins.round(1 - m["metrics"]["recall"]["value"], 4)  # `round` is a tool parameter here
-    store.save_round(store.repo(), r, score=m)
     return _log("score_round", {"round": r}, m)
 
 
@@ -169,6 +216,14 @@ def train_gate(round: int | None = None) -> dict:
     """Train a candidate Gate on every train-split listing so far (holdout families never included). Models are
     always labelled with the current round."""
     r = current_round()
+    shut = _closed("train_gate", {"round": r}, 90)
+    if shut:
+        return shut
+    done = len((store.get_round(store.repo(), r) or {}).get("candidates", []))
+    if done >= MAX_TRAIN_CALLS:
+        return _log("train_gate", {"round": r}, {"error": (
+            f"training limit reached ({MAX_TRAIN_CALLS} candidates per round): promote your best candidate if you "
+            "haven't, then write your CoordinatorOutput")})
     out = gate_client.train(r)
     if not out.get("error"):
         store.repo().db.rounds.update_one({"_id": current_round()}, {"$push": {"candidates": out["model_id"]}},

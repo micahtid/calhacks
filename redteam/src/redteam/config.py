@@ -38,8 +38,12 @@ PRICES = {
 BATCH_SIZE = 3           # LLM slots per Bitdeer call (the models spend ~2.3k output tokens per slot, mostly reasoning)
 TOKENS_PER_SLOT = 5000   # max_tokens = slots * TOKENS_PER_SLOT; a too-small cap truncates the JSON
 CONCURRENCY = 16
-ROUND_BUDGET = {"usd": 5.0, "tokens": 3_000_000, "minutes": 45.0}  # C8, per round
-ROUND_WALL_SECONDS = int(ROUND_BUDGET["minutes"] * 60)
+ROUND_BUDGET = {"usd": 5.0, "tokens": 3_000_000, "minutes": 20.0}  # C8, per round
+ROUND_WALL_SECONDS = int(ROUND_BUDGET["minutes"] * 60)  # tools close near the end of this window
+ROUND_FINISH_SECONDS = 6 * 60   # after the window: time to promote and write the CoordinatorOutput, then interrupted
+MAX_TRAIN_CALLS = 6             # train_gate calls per round
+FAMILY_ROUND_CAP = 40           # coordinator-generated scams per family per round (the base dataset covers the rest)
+MIN_FAMILY_VAL = 3              # promotion needs at least this many val rows of every seen scam family
 
 # C6 promotion rule
 MAX_FPR = 0.02

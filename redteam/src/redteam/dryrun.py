@@ -14,6 +14,7 @@ promoted.json), data/ (round logs, guard log), holdout/ (encrypted locked test s
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -27,6 +28,8 @@ def env_for(run: Path, cfg: dict) -> dict:
            "PYTHONIOENCODING": "utf-8"}
     if cfg.get("knowledge"):
         env["REDTEAM_ATTACKER_KNOWLEDGE"] = cfg["knowledge"]
+    if cfg.get("base_store"):  # every seen family is in the data, so promotion can insist on checking each one
+        env["REDTEAM_REQUIRE_COVERAGE"] = "1"
     return env
 
 
@@ -73,12 +76,66 @@ def seed_repo(r, snap: Path, side: str, all_known: bool, as_of: str) -> dict:
     return {"listings": len(listings), "known_sellers": len(known)}
 
 
-def init(run: Path, snap: Path, seed: int, knowledge: str | None, all_known: bool) -> dict:
+BASE_COLLECTIONS = ("listings", "listing_meta", "answer_keys", "cases", "gen", "specs")
+
+
+def add_base_dataset(r, base_store: Path) -> dict:
+    """Copy the synthetic listings of a base dataset (a store generated evenly over every seen family from the same
+    snapshot side) into `r` as round 0. The coordinator's data is added on top, so no seen family can drop out of
+    training or validation whatever it chooses to generate."""
+    from redteam import store
+    b = store.load_local(base_store)
+    if set(b.real_listing_ids()) != set(r.real_listing_ids()):
+        raise SystemExit(f"{base_store} was not built from this snapshot side (its real listings differ)")
+    synthetic = [k["_id"] for k in b.db.answer_keys.find({"family": {"$ne": "real"}}, {"_id": 1})]
+    for name in BASE_COLLECTIONS:
+        docs = list(b.db[name].find({} if name == "specs" else {"_id": {"$in": synthetic}}))
+        for d in docs:
+            if name == "specs":
+                d["round"] = 0
+        if docs:
+            r.db[name].insert_many(docs)
+    return {"base_listings": len(synthetic)}
+
+
+def copy_holdout(src: Path, run: Path) -> dict:
+    """Reuse a sealed holdout (built once per snapshot; the coordinator never sees it): the encrypted file, its key and
+    meta, without the earlier run's history."""
+    dst = run / "holdout"
+    dst.mkdir(parents=True, exist_ok=True)
+    files = [f for f in src.iterdir() if f.is_file() and not f.name.endswith("history.jsonl")]
+    if not any(f.name.endswith(".enc") for f in files):
+        raise SystemExit(f"no sealed holdout in {src}")
+    for f in files:
+        shutil.copy2(f, dst / f.name)
+    return {"holdout_files": sorted(f.name for f in files)}
+
+
+def promote_baseline(run: Path) -> dict:
+    """Train the Gate on round 0 (real listings plus the base dataset) with the committed features and make it the
+    incumbent, so round 1's candidates must beat it rather than nothing."""
+    _apply_env(run)
+    from redteam import gate_client, holdout, promotion, store
+    store.reload()
+    t = gate_client.train(0)
+    if t.get("error"):
+        raise SystemExit(f"baseline training failed: {t['error']}")
+    res = promotion.promote(t["model_id"], holdout.totals if holdout.available() else None)
+    if not res["promoted"]:  # the incumbent is the baseline whatever its numbers; record why it would be refused
+        h = holdout.totals(t["model_id"]) if holdout.available() else None
+        gate_client.set_promoted(t["model_id"], res.get("candidate_val") or t.get("val"),
+                                 h.model_dump(mode="json") if h else None)
+    return {"baseline": t["model_id"], "baseline_refusals": res["reasons"]}
+
+
+def init(run: Path, snap: Path, seed: int, knowledge: str | None, all_known: bool, base_store: Path | None = None,
+         holdout_from: Path | None = None) -> dict:
     if (run / "run.json").exists():
         raise SystemExit(f"{run} already initialised")
     manifest = json.loads((snap / "manifest.json").read_text())
     cfg = {"snapshot": str(snap), "snapshot_hashes": manifest["hashes"], "as_of": manifest["as_of"], "seed": seed,
-           "knowledge": knowledge, "all_known": all_known,
+           "knowledge": knowledge, "all_known": all_known, "base_store": base_store and str(base_store),
+           "holdout_from": holdout_from and str(holdout_from),
            "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     for sub in ("store", "models", "data", "holdout", "diffs"):
         (run / sub).mkdir(parents=True, exist_ok=True)
@@ -87,7 +144,13 @@ def init(run: Path, snap: Path, seed: int, knowledge: str | None, all_known: boo
     from redteam import store
     r = store.empty_local_repo()
     out = seed_repo(r, snap, "train", all_known, cfg["as_of"])
+    if base_store:
+        out.update(add_base_dataset(r, base_store))
     store.write_local(r, run / "store")
+    if holdout_from:
+        out.update(copy_holdout(holdout_from, run))
+    if base_store:
+        out.update(promote_baseline(run))
     return {"run": str(run), **out}
 
 
@@ -119,6 +182,7 @@ def run_round(run: Path, round_: int, max_listings: int, timeout_s: int) -> dict
             code = proc.returncode
         except subprocess.TimeoutExpired:
             code = "timeout"
+    subprocess.run(["git", "add", "--intent-to-add", "--", "gate/features"], cwd=REPO, capture_output=True)  # new files
     diff = subprocess.run(["git", "diff", "--", "gate/features", "gate/train_config.yaml"], cwd=REPO,
                           capture_output=True, text=True, encoding="utf-8").stdout
     (run / "diffs" / f"R{round_}.diff").write_text(diff, encoding="utf-8")
@@ -136,7 +200,7 @@ def _rate(m: dict | None, key: str):
 
 def summary(run: Path) -> dict:
     cfg = _apply_env(run)
-    from redteam import store
+    from redteam import holdout, store
     from redteam.config import HOLDOUT, HOLDOUT_MODEL, usd
     store.reload()
     r = store.repo()
@@ -145,22 +209,29 @@ def summary(run: Path) -> dict:
     hist = {h["model_id"]: h for h in promoted["history"]}
     rows = []
     for doc in store.all_rounds(r):
-        rep, score = doc.get("report") or {}, doc.get("score") or {}
+        rep, attack = doc.get("report") or {}, doc.get("attack") or {}
         promos = doc.get("promotions") or []
         kept = [p for p in promos if p.get("promoted")]
         last = kept[-1] if kept else (promos[-1] if promos else {})  # a round that kept a model reports that model
         m = last.get("candidate_val") or rep.get("metrics") or {}
         h = hist.get(last.get("model_id")) if last.get("promoted") else None
+        op = (holdout.history(last["model_id"]) or [None])[-1] if h else None  # operator-only holdout report
         diff = run / "diffs" / f"R{doc['_id']}.diff"
         rows.append({
             "round": doc["_id"],
-            "attack_success": score.get("attack_success"),
+            "attack_success": _rate(attack, "attack_success"), "attack_model": attack.get("model_id"),
+            "policy_bounded_recall": _rate(m, "policy_bounded_recall"),
             "recall": _rate(m, "recall"), "fpr": _rate(m, "fpr"), "fpr_real": _rate(m, "fpr_real"),
             "layer2_fpr": _rate(m, "layer2_fpr"),
             "layer2_recall": _rate(m, "layer2_recall"), "layer1_catches": m.get("layer1_catches"),
             "adaptive_recall": _rate(m, "adaptive_recall"),
             "holdout_recall": _rate((h or {}).get("holdout"), "recall"),
             "holdout_fpr": _rate((h or {}).get("holdout"), "fpr"),
+            "holdout_operator": None if not op else {
+                "layer2_fpr": _rate(op["totals"], "layer2_fpr"),
+                "policy_bounded_recall": _rate(op["totals"], "policy_bounded_recall"),
+                "recall_seen": _rate(op["groups"], "seen"), "recall_held_out": _rate(op["groups"], "held_out"),
+                "ci95_cluster": op["ci95_cluster"], "clusters": op["clusters"]},
             "decision": "kept" if kept else ("revert" if promos or rep else None),
             "reason": (last.get("decision") or rep.get("decision") or {}).get("reason"),
             "kept_models": [p["model_id"] for p in kept], "promotion_requests": len(promos),
@@ -168,6 +239,7 @@ def summary(run: Path) -> dict:
             "generation": doc.get("generation"), "cost": rep.get("cost"),
             "feature_changes": rep.get("feature_changes"), "session_id": doc.get("session_id"),
             "diff": str(diff) if diff.exists() and diff.stat().st_size else None,
+            "audit_failing": (doc.get("audit") or {}).get("failing"),
         })
     hold_meta = HOLDOUT / "holdout.v3.meta.json"
     hold = json.loads(hold_meta.read_text()) if hold_meta.exists() else None
@@ -192,17 +264,23 @@ def markdown(s: dict) -> str:
              f"known list: {'every real seller' if c['all_known'] else 'top reputable sellers'}",
              f"- Holdout: {s['holdout']['n'] if s['holdout'] else 0} listings, ${s['holdout_usd']:.4f}",
              f"- Total spend (estimate): **${s['spend_usd']:.4f}**",
-             "- Attack success = share of this round's attacks the previously promoted model let through, from the "
-             "round's last score_round call. Metrics are the kept model's (or the last candidate's) on validation.", "",
-             "| Round | Attack success | Recall | False blocks | False blocks (real) | L2 false blocks | L2 recall | "
-             "L1 catches | White-box recall | Holdout recall | Holdout false blocks | Decision | Cost |",
-             "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+             "- Attack success = share of this round's scam listings that the model promoted at the round's start let "
+             "through, computed once by code at the end of the round (95% interval in brackets). Recall excludes "
+             "policy-bounded families (unknown_seller), reported apart. Metrics are the kept model's (or the last "
+             "candidate's) on validation.", "",
+             "| Round | Attack success | Recall | Policy-bounded recall | False blocks | False blocks (real) | "
+             "L2 false blocks | L2 recall | L1 catches | White-box recall | Holdout recall | Holdout false blocks | "
+             "Audit fails | Decision | Cost |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for x in s["rounds"]:
         a = x["attack_success"]
+        aud = x.get("audit_failing")
         lines.append(" | ".join([
-            f"| R{x['round']}", "—" if a is None else f"{a * 100:.1f}%", _pct(x["recall"]), _pct(x["fpr"]),
+            f"| R{x['round']}", "—" if a is None else f"{a['value'] * 100:.1f}% [{a['lo'] * 100:.0f}–{a['hi'] * 100:.0f}]",
+            _pct(x["recall"]), _pct(x["policy_bounded_recall"]), _pct(x["fpr"]),
             _pct(x["fpr_real"]), _pct(x["layer2_fpr"]), _pct(x["layer2_recall"]), str(x["layer1_catches"]), _pct(x["adaptive_recall"]),
-            _pct(x["holdout_recall"]), _pct(x["holdout_fpr"]), x["decision"] or "—",
+            _pct(x["holdout_recall"]), _pct(x["holdout_fpr"]),
+            "—" if aud is None else (", ".join(aud) or "none"), x["decision"] or "—",
             "—" if not x["cost"] else f"${x['cost']['usd']:.4f}"]) + " |")
     lines.append("")
     for x in s["rounds"]:
@@ -212,6 +290,17 @@ def markdown(s: dict) -> str:
         for fc in x["feature_changes"] or []:
             lines.append(f"- Feature {fc['action']}: `{fc['feature']}`: {fc['rationale']}")
         lines.append(f"- Diff: {x['diff'] or 'no feature edits'}")
+        op = x.get("holdout_operator")
+        if op:
+            ci = lambda k: "" if not op["ci95_cluster"].get(k) else                 f" [{op['ci95_cluster'][k][0] * 100:.0f}–{op['ci95_cluster'][k][1] * 100:.0f}]"
+            lines.append(f"- Holdout (operator only, 95% intervals clustered over {op['clusters']} base listings): "
+                         f"seen families {_pct(op['recall_seen'])}{ci('recall_seen')}, held-out families "
+                         f"{_pct(op['recall_held_out'])}{ci('recall_held_out')}, L2 false blocks "
+                         f"{_pct(op['layer2_fpr'])}{ci('layer2_fpr')}, policy-bounded "
+                         f"{_pct(op['policy_bounded_recall'])}{ci('policy_bounded_recall')}")
+        if x.get("audit_failing"):
+            lines.append(f"- Audit: **{', '.join(x['audit_failing'])}** can be told apart from real listings by "
+                         f"traits the attack should not touch; treat this round's numbers for them with care")
         lines.append("")
     return "\n".join(lines)
 
@@ -225,6 +314,8 @@ def main(argv=None) -> int:
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--knowledge", choices=["blind", "white_box"])
     p.add_argument("--all-known", action="store_true")
+    p.add_argument("--base-store", type=Path, help="store whose synthetic listings seed round 0 (and a baseline model)")
+    p.add_argument("--holdout-from", type=Path, help="folder holding a sealed holdout to reuse")
     p = sub.add_parser("holdout")
     p.add_argument("--run", type=Path, required=True)
     p.add_argument("--per-family", type=int, default=60)
@@ -233,13 +324,14 @@ def main(argv=None) -> int:
     p.add_argument("--run", type=Path, required=True)
     p.add_argument("--round", type=int, required=True)
     p.add_argument("--max-listings", type=int, default=300)
-    p.add_argument("--timeout", type=int, default=50 * 60)
+    p.add_argument("--timeout", type=int, default=35 * 60)
     p = sub.add_parser("summary")
     p.add_argument("--run", type=Path, required=True)
     a = ap.parse_args(argv)
     run = a.run.resolve()
     if a.cmd == "init":
-        out = init(run, a.snapshot.resolve(), a.seed, a.knowledge, a.all_known)
+        out = init(run, a.snapshot.resolve(), a.seed, a.knowledge, a.all_known,
+                   a.base_store and a.base_store.resolve(), a.holdout_from and a.holdout_from.resolve())
     elif a.cmd == "holdout":
         out = build_holdout(run, a.per_family, a.slice)
     elif a.cmd == "round":

@@ -41,7 +41,8 @@
       "label": "scam",
       "expected_layer": "layer2",
       "needs_llm": false,
-      "description": "An unknown wallet priced within the cap, with weak signals: a brand-new wallet and generic text."
+      "description": "An unknown wallet priced within the cap, with weak signals: a brand-new wallet and generic text.",
+      "policy_bounded": true
     },
     {
       "id": "too_cheap",
@@ -127,5 +128,6 @@
     "legit_mixed_reviews",
     "legit_rewrite"
   ],
-  "real_family": "real"
+  "real_family": "real",
+  "note_policy_bounded": "policy_bounded families have no learnable signal without real wallet history (a new scammer looks like a new honest seller); the unknown-seller cap bounds them. Their catch rate is reported separately (policy_bounded_recall) and excluded from recall / layer2_recall."
 }

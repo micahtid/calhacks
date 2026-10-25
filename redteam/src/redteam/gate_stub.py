@@ -152,14 +152,16 @@ def train(round_: int) -> dict:
     refs = r.reference_snapshot()
     ids = store.listing_ids(r, rounds=range(0, round_ + 1))
     its = [it for it in store.items(r, ids) if it[2].family not in holdout_families()]
-    tr = [it for it in its if split_of(it[0].listing_id) == "train"]
-    va = [it for it in its if split_of(it[0].listing_id) == "val"]
+    side = {it[0].listing_id: split_of(it[0].listing_id, it[2].base_listing_id) for it in its}
+    tr = [it for it in its if side[it[0].listing_id] == "train"]
+    va = [it for it in its if side[it[0].listing_id] == "val"]
+    cal = [it for it in its if side[it[0].listing_id] == "calibrate"] or va
     if not tr or not va or len({it[2].label for it in tr}) < 2:
         return {"error": f"need train and val rows with both labels (train={len(tr)}, val={len(va)})"}
     X = [featurize(gate_input(l, c, refs)) for l, c, _ in tr]
     coef = _fit(X, [1 if k.label == "scam" else 0 for _, _, k in tr])
-    # threshold: lowest cut whose Layer-2 false-block rate on val legit rows (that pass Layer 1) stays <= MAX_FPR
-    legit_risks = sorted((_score(coef, featurize(gi))[0] for l, c, k in va if k.label == "legit"
+    # threshold: lowest cut whose Layer-2 false-block rate on calibrate legit rows (that pass Layer 1) stays <= MAX_FPR
+    legit_risks = sorted((_score(coef, featurize(gi))[0] for l, c, k in cal if k.label == "legit"
                           for gi in [gate_input(l, c, refs)] if all(ch.passed for ch in layer1(gi))), reverse=True)
     allowed = int(MAX_FPR * len(legit_risks))
     threshold = round(legit_risks[allowed] + 1e-6, 6) if len(legit_risks) > allowed else 0.5
@@ -191,7 +193,9 @@ def evaluate_items(model_id: str, its: list[tuple[Listing, Case, AnswerKey]], re
 def evaluate(model_id: str, split: str = "all", ids: list[str] | None = None, rows: bool = False) -> dict:
     r = store.repo()
     ids = ids if ids is not None else store.listing_ids(r, split=split)
-    ids = [i for i in ids if split == "all" or split_of(i) == split]
+    if split != "all":
+        sides = store.split_map(r, ids)
+        ids = [i for i in ids if sides[i] == split]
     return evaluate_items(model_id, store.items(r, ids), r.reference_snapshot(), rows)
 
 

@@ -183,6 +183,30 @@
         },
         "fpr": {
           "$ref": "#/$defs/Rate"
+        },
+        "layer2_fpr": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "False blocks among legit rows that pass Layer 1"
+        },
+        "policy_bounded_recall": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Policy-bounded families, reported apart"
         }
       },
       "required": [
@@ -451,11 +475,23 @@
         },
         "recall": {
           "$ref": "#/$defs/Rate",
-          "description": "Full Gate recall on synthetic scams"
+          "description": "Full Gate recall on synthetic scams, excluding policy-bounded families"
         },
         "fpr": {
           "$ref": "#/$defs/Rate",
           "description": "Full Gate false-block rate on all legit listings"
+        },
+        "policy_bounded_recall": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Skip rate on policy-bounded scam families (families.json policy_bounded), reported apart from recall"
         },
         "layer2_fpr": {
           "anyOf": [

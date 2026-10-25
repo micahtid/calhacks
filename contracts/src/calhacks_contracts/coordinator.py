@@ -57,6 +57,8 @@ class HoldoutTotals(Strict):
     model_id: str
     recall: Rate
     fpr: Rate
+    layer2_fpr: Rate | None = Field(default=None, description="False blocks among legit rows that pass Layer 1")
+    policy_bounded_recall: Rate | None = Field(default=None, description="Policy-bounded families, reported apart")
 
 
 class Miss(Strict):
@@ -99,8 +101,11 @@ class RoundMetrics(Strict):
     fpr_real: Rate = Field(description="False blocks on real listings")
     per_family: dict[str, Rate]
     adaptive_recall: Rate | None = Field(default=None, description="Recall on white_box attacks")
-    recall: Rate = Field(description="Full Gate recall on synthetic scams")
+    recall: Rate = Field(description="Full Gate recall on synthetic scams, excluding policy-bounded families")
     fpr: Rate = Field(description="Full Gate false-block rate on all legit listings")
+    policy_bounded_recall: Rate | None = Field(
+        default=None, description="Skip rate on policy-bounded scam families (families.json policy_bounded), "
+                                  "reported apart from recall")
     layer2_fpr: Rate | None = Field(
         default=None, description="False blocks among legit listings that pass Layer 1: the trained model's own "
                                   "mistakes. Layer 1 policy blocks (e.g. unknown wallets over the cap) are excluded")

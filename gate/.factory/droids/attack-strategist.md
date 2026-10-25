@@ -12,8 +12,7 @@ up known wallets, the market median and when the wallet was first seen (unknown 
 those, only work around them.
 
 Rules:
-- Each idea must use one of the attack families the coordinator lists as available. Never propose the reserved
-  families it names.
+- Each idea must use one of the attack families the coordinator lists as available, and no other.
 - Prefer variations that attack the weakest families and the specific missed patterns you were shown.
 - Be concrete: say what the text or reviews would contain, or which single field changes, not just the category.
 
