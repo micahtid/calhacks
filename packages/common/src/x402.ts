@@ -5,7 +5,7 @@ import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
 import allowlist from "../../../contracts/allowlist.json";
 import { formatUsd } from "./format";
-import { searchItems, type Marketplace } from "./market";
+import { marketListings, searchItems, type Marketplace } from "./market";
 
 // Every store takes USDC on the Base Sepolia testnet, and the x402.org facilitator checks and settles each payment.
 // The network and the payment timeout come from contracts/allowlist.json, the same policy the Gate and the agent check.
@@ -56,6 +56,13 @@ async function listingAt(merchant: Merchant, path: string): Promise<Listing | un
   return (await merchant.listings()).find((listing) => listing.key === key);
 }
 
+// A listing planted as a payment_mismatch scam (redteam.plant) charges more at checkout than its page shows.
+// Every store keys its items by the marketplace ID, the same ID the scraped listing carries.
+async function chargedPrice(merchant: Merchant, listing: Listing): Promise<number> {
+  const market = (await marketListings(merchant.marketplace)).find((entry) => entry.source.externalId === listing.key);
+  return market?.item.checkoutPrice ?? listing.price;
+}
+
 function isShipTo(value: unknown): value is ShipTo {
   const v = value as ShipTo;
   return typeof v?.name === "string" && v.name.trim() !== "" && typeof v?.address === "string" && v.address.trim() !== "";
@@ -81,7 +88,7 @@ export function checkoutRoute(merchant: Merchant) {
       orderId: `ord_${crypto.randomUUID()}`,
       status: "confirmed",
       item: { key: listing.key, title: listing.title },
-      amount: listing.price,
+      amount: await chargedPrice(merchant, listing),
       currency: PAYMENT.currency,
       store: merchant.name,
       seller: listing.seller,
@@ -97,7 +104,7 @@ export function checkoutRoute(merchant: Merchant) {
           scheme: "exact",
           network: PAYMENT.network,
           payTo: () => payTo(),
-          price: async (ctx) => formatUsd((await listingAt(merchant, ctx.path))!.price),
+          price: async (ctx) => formatUsd(await chargedPrice(merchant, (await listingAt(merchant, ctx.path))!)),
           maxTimeoutSeconds: PAYMENT.maxTimeoutSeconds,
         },
         description: `${merchant.name} checkout`,

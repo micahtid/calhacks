@@ -250,7 +250,8 @@ def read_scrape(db_name: str = "calhacks") -> tuple[list[dict], list]:
         if f.exists():
             load_dotenv(f)
     db = MongoClient(os.environ["MONGODB_URI"], serverSelectionTimeoutMS=20000, appname="calhacks-scrape-map")[db_name]
-    docs = list(db.listings.find({}, {"item.images": 0}).sort("_id", 1))
+    # Listings planted as scams by redteam.plant carry a `scam` field; they are not real bases.
+    docs = list(db.listings.find({"scam": {"$exists": False}}, {"item.images": 0}).sort("_id", 1))
     return docs, list(db.scrape_state.find())
 
 
