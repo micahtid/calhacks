@@ -1,77 +1,99 @@
-import type { ReactNode } from "react";
-import { EXPLORER, type Chat, type Transaction } from "@/lib/data";
-import { ArrowUpRightIcon } from "./Icons";
+import { useState } from "react";
+import type { Chat } from "@/lib/data";
+import { short, useWallet, type Transfer } from "@/lib/wallet";
+import { ArrowUpRightIcon, NoImageIcon } from "./Icons";
 
-const day = new Intl.DateTimeFormat("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-const format = (iso: string) => day.format(new Date(iso));
+const when = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-type Props = { transactions: Transaction[]; chats: Chat[]; onOpenChat: (id: string) => void };
+// The ledger starts here: earlier payments were test runs, so they are cleared from the list. They stay on chain.
+const SINCE = Date.parse("2026-10-24T22:30:00Z");
 
-export function Transactions({ transactions, chats, onOpenChat }: Props) {
-  const shipping = transactions.filter((t) => t.delivery.status === "shipping");
-  const delivered = transactions.filter((t) => t.delivery.status === "delivered");
-  const spent = transactions.reduce((sum, t) => sum + t.amount, 0);
-  const row = (t: Transaction) => {
-    const chat = chats.find((c) => c.id === t.chatId);
-    return <Row key={t.id} transaction={t} onOpen={chat && !chat.disabled ? () => onOpenChat(chat.id) : undefined} />;
-  };
+// What a payment bought, from the receipt of the chat that made it.
+type Bought = { title: string; image?: string | null };
+
+// Every payment Hunter made since SINCE, read live from Base Sepolia. Refunds and faucet funds are left out, so the
+// list shows only what Hunter paid for. A payment made by a saved chat shows that item's photo and name.
+export function Transactions({ chats }: { chats: Chat[] }) {
+  const { wallet, error } = useWallet();
+  const transfers = (wallet?.transactions ?? []).filter((t) => t.direction === "sent" && Date.parse(t.at) >= SINCE);
+  const spent = transfers.reduce((sum, t) => sum + t.amount, 0);
+
+  const bought = new Map<string, Bought>();
+  for (const chat of chats) {
+    const receipt = chat.live?.saved?.receipt;
+    if (receipt?.txHash) bought.set(receipt.txHash.toLowerCase(), { title: chat.title, image: receipt.image });
+  }
 
   return (
     <section className="ledger">
       <header className="ledger-head">
         <h1>Transactions</h1>
         <p className="sub">
-          {transactions.length} Purchases · {spent.toFixed(2)} USDC Spent
+          {wallet
+            ? `${transfers.length} ${transfers.length === 1 ? "Payment" : "Payments"} · ${spent.toFixed(2)} USDC Spent · ${wallet.balance.toFixed(2)} USDC Left`
+            : "Base Sepolia"}
         </p>
+        <p className="note">Demo purchases are refunded.</p>
       </header>
 
-      <Group title="On the Way" count={shipping.length}>
-        {shipping.map(row)}
-      </Group>
-      <Group title="Delivered" count={delivered.length}>
-        {delivered.map(row)}
-      </Group>
+      <div className="ledger-group">
+        <div className="ledger-card">
+          {!wallet ? (
+            <p className="ledger-empty">{error ?? "Loading…"}</p>
+          ) : transfers.length > 0 ? (
+            transfers.map((t) => (
+              <Row key={`${t.hash}-${t.direction}-${t.amount}`} transfer={t} bought={bought.get(t.hash.toLowerCase())} />
+            ))
+          ) : (
+            <p className="ledger-empty">Nothing here yet.</p>
+          )}
+        </div>
+      </div>
     </section>
   );
 }
 
-function Group({ title, count, children }: { title: string; count: number; children: ReactNode }) {
-  return (
-    <div className="ledger-group">
-      <h2 className="ledger-label">
-        {title}
-        <span className="count">{count}</span>
-      </h2>
-      <div className="ledger-card">{count > 0 ? children : <p className="ledger-empty">Nothing here yet.</p>}</div>
-    </div>
-  );
-}
-
-// The whole row opens its chat, unless that chat is disabled. The receipt button sits above that hit area so it still works on its own.
-function Row({ transaction: t, onOpen }: { transaction: Transaction; onOpen?: () => void }) {
-  const shipping = t.delivery.status === "shipping";
+function Row({ transfer: t, bought }: { transfer: Transfer; bought?: Bought }) {
+  const sent = t.direction === "sent";
 
   return (
-    <div className={onOpen ? "tx-row" : "tx-row static"}>
-      {onOpen && <button className="tx-hit" onClick={onOpen} aria-label={`Open Chat for ${t.item}`} />}
+    <div className="tx-row">
+      <TxPhoto src={bought?.image} />
       <div className="tx-item">
-        <div className="cell-main">{t.item}</div>
-        <div className="cell-sub">{t.store}</div>
+        <div className="cell-main">{bought?.title ?? (sent ? "Payment" : "Received")}</div>
+        <div className="cell-sub mono">
+          {sent ? "To" : "From"} {short(t.counterparty)}
+        </div>
       </div>
-      <div className={shipping ? "tx-eta shipping" : "tx-eta"}>
-        {t.delivery.status === "shipping" ? `Arrives ${format(t.delivery.eta)}` : `Delivered ${format(t.delivery.at)}`}
+      <div className="tx-date">{when.format(new Date(t.at))}</div>
+      <div className="tx-amount">
+        {sent ? "−" : "+"}
+        {t.amount.toFixed(2)} USDC
       </div>
-      <div className="tx-amount">{t.amount.toFixed(2)} USDC</div>
       <a
         className="tx-receipt"
-        href={`${EXPLORER}/tx/${t.txHash}`}
+        href={t.explorer}
         target="_blank"
         rel="noreferrer"
-        title="View Receipt on Basescan"
-        aria-label="View Receipt on Basescan"
+        title="View on Basescan"
+        aria-label="View on Basescan"
       >
         <ArrowUpRightIcon />
       </a>
     </div>
+  );
+}
+
+// The item's photo, or the no-image icon when the payment has no saved chat or the photo fails to load.
+function TxPhoto({ src }: { src?: string | null }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed)
+    return (
+      <span className="tx-photo empty">
+        <NoImageIcon />
+      </span>
+    );
+  return (
+    <img className="tx-photo" src={src} alt="" loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
   );
 }

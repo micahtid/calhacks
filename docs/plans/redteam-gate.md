@@ -1,8 +1,7 @@
 # Red-team loop + Gate: implementation plan
 
-Scope: the **Gate** (green on the architecture page) and the **red-team loop** (purple). Source of truth is
-`calhacks-planning/calhacks-plan.md`; where it and the site disagree, this plan follows the plan doc
-(3–5k listings per round, holdout split by attack family, two-layer Gate).
+Scope: the **Gate** (green on the architecture page) and the **red-team loop** (purple). Where this plan and the
+site disagree, this plan wins (3–5k listings per round, holdout split by attack family, two-layer Gate).
 
 Work runs in two git worktrees after a short shared step:
 
@@ -50,8 +49,8 @@ Each blocker has a status: **DECIDED** (this plan picks a default; override if y
   for (honest comparison stores?) and what are their `payTo` wallets?
 
 **A5. Market medians (Listings/Apify part) NEEDS YOU (token) or DECIDED fallback**
-- *Plain version:* "too cheap" only means something next to a normal price. `calhacks-planning/tests/market_medians.py`
-  builds that list from eBay sold listings, but it hasn't been run yet (there's no `medians/` folder).
+- *Plain version:* "too cheap" only means something next to a normal price. Medians come from
+  eBay sold listings, which haven't been scraped yet (there's no `medians/` folder).
 - *Why:* the price feature and the "too cheap" attack both depend on it. Needed by about hour 1:30.
 - *Default:* if `APIFY_TOKEN` isn't available, use Pixel Cart's own catalog prices as the medians
   (`contracts/market_medians.json`, labelled `source: catalog-fallback`) and switch to the real list later.
@@ -137,7 +136,7 @@ Each blocker has a status: **DECIDED** (this plan picks a default; override if y
 ### C. Environment, accounts, SDK
 
 **C1. Bitdeer keys aren't in this machine's environment NEEDS YOU**
-- `BITDEER_API_KEY` and `BITDEER_KEY_GLM` were set in the shell that ran the planning tests but aren't set now
+- `BITDEER_API_KEY` and `BITDEER_KEY_GLM` were set in an earlier shell but aren't set now
   (not in user-level env either). Put them in a gitignored `.env` at the repo root, or set them user-level.
 
 **C2. Bitdeer test results not recorded NEEDS YOU (or we re-run, about 5 min)**
@@ -148,7 +147,7 @@ Each blocker has a status: **DECIDED** (this plan picks a default; override if y
   backoff. Prompts frame the work as security test data, and code (not the LLM) applies the dangerous parts
   (wallet swaps etc.), which lowers refusal risk. We re-run `bitdeer_smoke.py` and `bitdeer_followup.py` first.
 
-**C3. The planning tests show three ways the holdout can leak DECIDED (fixes in B6) + TEST**
+**C3. Earlier test sessions show three ways the holdout can leak DECIDED (fixes in B6) + TEST**
 
 What the logged sessions show:
 - **The permission handler alone does not stop reading.** With read tools enabled and only the handler in place,

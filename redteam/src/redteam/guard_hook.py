@@ -1,6 +1,6 @@
 """PreToolUse guard for the coordinator (plan B6/C3/C5). Wired by coordinator.py into gate/.factory/hooks.json.
 
-Protocol (proven in calhacks-planning/tests/guard_hook.py): event JSON on stdin; exit 2 blocks the call and stderr is
+Protocol (Factory PreToolUse hooks): event JSON on stdin; exit 2 blocks the call and stderr is
 shown to the model; exit 0 allows it.
 
 Policy, by path rather than by keyword (the old hook blocked any input containing the word "holdout"):

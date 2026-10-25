@@ -2,21 +2,21 @@ import "server-only";
 import { MongoClient, type Db } from "mongodb";
 
 // Every store shares one MongoDB client per server process. The client is kept on globalThis, so hot reloads in dev do not open a new pool each time.
-const cache = globalThis as typeof globalThis & { mongo?: Promise<MongoClient> };
+// Only the connected client is kept, never a pending promise: a "use cache" function may not await a promise created outside it.
+const cache = globalThis as typeof globalThis & { mongo?: MongoClient };
 
-function connect(): Promise<MongoClient> {
+export async function mongo(): Promise<MongoClient> {
+  if (cache.mongo) return cache.mongo;
   const uri = process.env.MONGODB_URI;
   if (!uri) throw new Error("MONGODB_URI is not set");
-  return new MongoClient(uri, { appName: "calhacks" }).connect();
-}
-
-export function mongo(): Promise<MongoClient> {
-  // A failed connect is dropped from the cache, so the next call tries again.
-  cache.mongo ??= connect().catch((error) => {
-    cache.mongo = undefined;
-    throw error;
-  });
-  return cache.mongo;
+  const client = await new MongoClient(uri, { appName: "calhacks" }).connect();
+  // Two cold calls can connect at once. The first to finish is kept and the other is closed.
+  if (cache.mongo) {
+    await client.close();
+    return cache.mongo;
+  }
+  cache.mongo = client;
+  return client;
 }
 
 // Each store keeps its data in a database named after itself.

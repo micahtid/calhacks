@@ -20,7 +20,7 @@ export default async function Home() {
   const stats = [
     { icon: <Hanger />, title: items.length.toLocaleString("en-US"), text: "Items for Sale" },
     { icon: <Sparkle />, title: new Set(items.map((item) => item.brand)).size.toLocaleString("en-US"), text: "Brands to Shop" },
-    { icon: <Shield />, title: "Buy Safely", text: "Depop Protection", link: true },
+    { icon: <Shield />, title: "Buy Safely", text: "dpp Protection", link: true },
   ];
 
   return (

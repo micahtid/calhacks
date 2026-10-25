@@ -1,12 +1,12 @@
 import type { Chat } from "@/lib/data";
-import { ChatIcon, PenIcon, ReceiptIcon, WalletIcon } from "./Icons";
+import { BoltIcon, ChatIcon, PenIcon, ReceiptIcon, TrashIcon, WalletIcon } from "./Icons";
 import { Logo } from "./Logo";
 
 export type View = { kind: "new" } | { kind: "chat"; id: string } | { kind: "transactions" } | { kind: "settings" };
 
-type Props = { chats: Chat[]; view: View; onNavigate: (view: View) => void };
+type Props = { chats: Chat[]; view: View; onNavigate: (view: View) => void; onDelete: (chat: Chat) => void };
 
-export function Sidebar({ chats, view, onNavigate }: Props) {
+export function Sidebar({ chats, view, onNavigate, onDelete }: Props) {
   const active = (kind: View["kind"]) => (view.kind === kind ? "nav-item active" : "nav-item");
 
   return (
@@ -30,26 +30,42 @@ export function Sidebar({ chats, view, onNavigate }: Props) {
         </button>
       </nav>
 
-      <div className="sb-group">
-        <div className="section">Chats</div>
-        <nav className="nav">
-          {chats.map((chat) => (
-            <button
-              key={chat.id}
-              className={view.kind === "chat" && view.id === chat.id ? "nav-item active" : "nav-item"}
-              onClick={() => onNavigate({ kind: "chat", id: chat.id })}
-              disabled={chat.disabled}
-            >
-              <ChatIcon />
-              <span className="truncate">{chat.title}</span>
-              {chat.status === "searching" && <span className="live-dot" aria-label="Searching" />}
-            </button>
-          ))}
-        </nav>
-      </div>
+      {chats.length > 0 && (
+        <div className="sb-group">
+          <div className="section">Chats</div>
+          <nav className="nav">
+            {chats.map((chat) => (
+              <div key={chat.id} className="chat-row">
+                <button
+                  className={view.kind === "chat" && view.id === chat.id ? "nav-item active" : "nav-item"}
+                  onClick={() => onNavigate({ kind: "chat", id: chat.id })}
+                >
+                  <ChatIcon />
+                  <span className="truncate">{chat.title}</span>
+                  {chat.status === "searching" && <span className="live-dot" aria-label="Searching" />}
+                </button>
+                <button
+                  className="chat-delete"
+                  aria-label={`Delete ${chat.title}`}
+                  title="Delete Chat"
+                  onClick={() => onDelete(chat)}
+                >
+                  <TrashIcon />
+                </button>
+              </div>
+            ))}
+          </nav>
+        </div>
+      )}
 
       <div className="sb-spacer" />
       <nav className="nav">
+        {/* Automatic buying is off and locked for now: every purchase waits for the user to confirm it. */}
+        <label className="nav-item toggle-row" title="Coming Soon">
+          <BoltIcon />
+          <span className="truncate">Automatic</span>
+          <input className="switch" type="checkbox" role="switch" checked={false} disabled readOnly />
+        </label>
         <button className={active("settings")} onClick={() => onNavigate({ kind: "settings" })}>
           <WalletIcon />
           Settings

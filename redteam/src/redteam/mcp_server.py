@@ -196,7 +196,7 @@ def build_server():
 
 
 def _jsonify(fn):
-    """Return results as a JSON string (what the planning tests proved works with droid)."""
+    """Return results as a JSON string, the result shape droid reads reliably."""
     @functools.wraps(fn)
     def wrapper(*a, **kw):
         try:

@@ -1,7 +1,7 @@
 """Bitdeer Model Studio client (OpenAI-compatible): JSON-object mode, bounded retries, token tally.
 
-JSON-object mode plus our own validation, rather than strict json_schema, avoids the runaway-whitespace failures
-seen in calhacks-planning/tests/bitdeer_followup.py.
+JSON-object mode plus our own validation, rather than strict json_schema: strict schemas on Bitdeer produced
+runs of whitespace instead of an answer.
 """
 import json
 import os

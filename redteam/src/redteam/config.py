@@ -27,7 +27,7 @@ COORDINATOR_MODEL = "custom:DeepSeek-V4.1-Flash-(Bitdeer)-0"
 STRATEGIST_DROID = "attack-strategist"
 PROMPT_VERSION = "v2"
 
-# Approximate USD per 1M tokens (input, output), upper-bound list prices from calhacks-planning/tests/bitdeer_budget.py.
+# Approximate USD per 1M tokens (input, output), upper-bound Bitdeer list prices.
 PRICES = {
     "zai-org/GLM-5.3": (1.40, 4.40),
     "zai-org/GLM-5.3-Flash": (0.15, 0.50),
