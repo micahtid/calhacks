@@ -25,4 +25,7 @@ ARG GATE_MODEL_ID=""
 COPY gates /repo/gates
 RUN uv run --no-sync gate-release install ${GATE_MODEL_ID}
 
+# One OpenMP thread per prediction: LightGBM otherwise starts a pool sized to the host's CPUs inside every concurrent
+# request, which ran out of threads on Railway ("libgomp: Thread creation failed") and restarted the service.
+ENV OMP_NUM_THREADS=1
 CMD ["sh", "-c", "uv run --no-sync uvicorn --factory gatepy.app:create_app --host 0.0.0.0 --port ${PORT:-8080}"]
