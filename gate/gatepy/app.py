@@ -3,11 +3,15 @@
   POST /decide    GateRequest -> GateDecision. Layer 1's rules run first and any failure skips; otherwise Layer 2
                   scores the listing the Gate fetched itself against the model's stored threshold. Any error is a
                   503 with decision "skip" (fail closed).
+                  With GATE_STORES set (the deployed service), the Gate reads each listing and its references from
+                  the live stores itself (gatepy.live) and needs no database.
   GET  /health    liveness plus the loaded model id
   GET  /version   model id, feature-code hash, threshold, contracts version
 
-Env: GATE_MODEL_ID (default gates/CURRENT), GATE_MODELS (default gate/models), MONGODB_URI and MONGODB_DB_REDTEAM
-(listings and references, read only). Startup fails if gate/features doesn't match the model's feature-code hash.
+Env: GATE_MODEL_ID (default gates/CURRENT), GATE_MODELS (default gate/models). Live stores: GATE_STORES (the store
+origins the Gate may read, comma-separated) and GATE_KNOWN_STORES (the real ones among them: known sellers and market
+prices). Without GATE_STORES: MONGODB_URI and MONGODB_DB_REDTEAM (listings and references, read only).
+Startup fails if gate/features doesn't match the model's feature-code hash.
 POST /gate/risk is kept as an alias of /decide for older callers.
 
   uv run --project gate --extra serve uvicorn --factory gatepy.app:create_app --port 8080
@@ -20,16 +24,24 @@ from fastapi.responses import JSONResponse
 
 from gatepy import MODELS
 from gatepy.layer1_bridge import Layer1Process
+from gatepy.live import LiveStores
 from gatepy.release import current, verify
 from gatepy.serve import Gate
 
 
 class ServedGate(Gate):
-    """serve.Gate with one long-lived Layer 1 process instead of a Node start per request."""
+    """serve.Gate with one long-lived Layer 1 process instead of a Node start per request. With `live`, listings and
+    references come from the live stores instead of the database."""
 
-    def __init__(self, *a, **kw):
+    def __init__(self, *a, live: LiveStores | None = None, **kw):
+        if live is not None:
+            kw |= {"fetch": lambda _id: None, "use_db_refs": False}
         super().__init__(*a, **kw)
+        self.live = live
         self.layer1 = Layer1Process()
+
+    def resolve(self, request):
+        return self.live.resolve(request) if self.live is not None else super().resolve(request)
 
     def score(self, request):
         from calhacks_contracts import GateRequest
@@ -50,7 +62,7 @@ def create_app(gate: Gate | None = None) -> FastAPI:
     if gate is None:
         model_id = os.environ.get("GATE_MODEL_ID") or current()
         verify(model_id, MODELS)  # refuse to start on a feature-code mismatch
-        gate = ServedGate(model_id, MODELS)
+        gate = ServedGate(model_id, MODELS, live=LiveStores.from_env() if os.environ.get("GATE_STORES") else None)
     app = FastAPI(title="Gate", version=gate.model.model_id)
     meta = gate.model.meta
 

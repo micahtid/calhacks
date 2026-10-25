@@ -68,15 +68,17 @@ non-200 is `skip`). It needs Python (LightGBM) and Node (Layer 1), so it is a Do
 - Service settings (Railway rejects `railway.json` config files, so these are set on the service, like the agent API):
   root directory `/`, variable `RAILWAY_DOCKERFILE_PATH=gate/Dockerfile`, no custom start command (the Dockerfile `CMD`
   runs), healthcheck `/health`, watch paths `/gate/**`, `/gates/**` and `/contracts/**`.
-- Variables: `MONGODB_URI` and `MONGODB_DB_REDTEAM` (read only: listings by id, known sellers, medians, wallet first
-  seen); optional `GATE_MODEL_ID` (default `gates/CURRENT`; as a build variable it also picks what is installed).
-  The Gate fetches each proposed listing by id itself, so that database must hold the listings Scout proposes, in the
-  contracts `Listing` shape.
+- Variables: `GATE_STORES=https://amazon.hntr.store,https://ebay.hntr.store,https://depop.hntr.store,https://amazon-outlet.hntr.store`
+  (the stores the Gate may read), `GATE_KNOWN_STORES=https://amazon.hntr.store,https://ebay.hntr.store,https://depop.hntr.store`
+  (the real ones: known sellers and market prices), `GATE_HOSTED_SUFFIX=.hntr.store`; optional `GATE_MODEL_ID`
+  (default `gates/CURRENT`; as a build variable it also picks what is installed). With `GATE_STORES` set the Gate
+  reads every listing from the live store itself (`gatepy.live`: catalog, item page, `store.json` and the unpaid
+  402) and needs no database. Without it, it reads listings by id from `MONGODB_URI` / `MONGODB_DB_REDTEAM`.
 - Endpoints: `POST /decide` (`GateRequest` → `GateDecision`; `POST /gate/risk` is an alias), `GET /health`,
   `GET /version` (model id, feature-code hash, threshold, contracts version). Layer 1 runs in one long-lived Node
   process (about 26 ms median per decision in the local container test).
 
 ```sh
 docker build -f gate/Dockerfile -t calhacks-gate .            # from the repo root
-docker run -p 8080:8080 -e MONGODB_URI=... calhacks-gate
+docker run -p 8080:8080 -e GATE_STORES=... -e GATE_KNOWN_STORES=... -e GATE_HOSTED_SUFFIX=.hntr.store calhacks-gate
 ```

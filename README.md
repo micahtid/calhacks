@@ -379,7 +379,8 @@ Two layers decide whether the wallet may pay; both must say yes. Details: `gate/
 - **Gate service** (`gatepy.app`, `gate/Dockerfile`): the Gate as its own Railway service, separate from the agent API.
   `POST /decide` (`GateRequest` -> `GateDecision`), `GET /health`, `GET /version`; Layer 1 in one long-lived Node
   process. The image installs the deployed model and its exact feature code from `gates/` and refuses to start if
-  they don't match. Railway settings and the release procedure: `gates/README.md`.
+  they don't match. With `GATE_STORES` set it reads each listing from the live store itself (catalog, item page,
+  `store.json`, the unpaid 402) and needs no database. Railway settings and the release procedure: `gates/README.md`.
 - **Gate archive** (`gates/`): every kept model with its own feature code, card and benchmark; `gates/CURRENT` is the
   deployed one (`r2-f0bfbd`: 91.8% accuracy, 88.1% of seen-family scams caught, 1.8% model false blocks on the
   benchmark; full figures against the baseline in `gate/README.md`). `uv run --project gate gate-release export|install|verify`.

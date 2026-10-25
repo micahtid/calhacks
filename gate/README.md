@@ -125,7 +125,12 @@ cd gate && uv run pytest                                # mongomock, never Atlas
 - `gatepy.serve.Gate(...).score(GateRequest)` / `make_router()` (`POST /gate/risk`) are for the wallet. The Gate fetches
   the listing by `proposal.listing_id` and looks up references itself; any error is a 503 "skip".
 - `gatepy.app` is the deployable service (`gate/Dockerfile`, built from the repo root): `POST /decide`, `GET /health`,
-  `GET /version`, with Layer 1 kept in one long-lived Node process (`layer1_bridge.Layer1Process`). It loads
+  `GET /version`, with Layer 1 kept in one long-lived Node process (`layer1_bridge.Layer1Process`). With
+  `GATE_STORES` set, `gatepy.live` reads each listing from the live store itself: `proposal.listing_id` is the item
+  page URL; the catalog gives title, price and seller, `store.json` the wallet, the page its text plus hidden text
+  (`gatepy.page`, a copy of the store crawler's extractor), and an unpaid checkout POST the real 402. References are
+  the `GATE_KNOWN_STORES` wallets and domains and the median price of their closest title matches. Stores under
+  `GATE_HOSTED_SUFFIX` are named `<label>.com`, the way training names marketplace sites. It loads
   `GATE_MODEL_ID` (default `../gates/CURRENT`) and refuses to start if `gate/features` doesn't match the model's
   feature-code hash. `uv run --project gate --extra serve uvicorn --factory gatepy.app:create_app --port 8080`.
 - `gate-release export <id> --models DIR` writes a model and its exact feature code to `../gates/<id>/`;
