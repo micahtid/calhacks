@@ -2,7 +2,7 @@
   <a href="https://hntr.store"><img src="assets/hunter-logo.svg" alt="Hunter" width="340"></a>
 </p>
 
-<p align="center"><b>The shopping agent that can't be scammed.</b></p>
+<p align="center"><b>The shopping agent that doesn't compromise on speed or safety.</b></p>
 
 <p align="center"><em>The AI finds the deal. Code holds the wallet.</em></p>
 
@@ -37,8 +37,12 @@ say what you want and set a limit once. Hunter searches real marketplaces, asks 
 listings fit, and shows you its favorites. Shopping with an agent should be both fast and safe, and Hunter doesn't
 trade one for the other.
 
-- **Speed.** Hunter searches every store at once and streams results as they arrive: the first listing comes back in
-  well under a second, each listing gets its safety verdict 0.2-0.3 s after its page loads, and a full search and
+- **Speed.** Today's marketplaces are built for people, with logins, carts and checkout forms an agent has to fight
+  through. So we rebuilt three of them for agents: **we scraped 2,000+ real product listings across Amazon, eBay and
+  Depop with Apify** and serve them from our own storefronts (mzn, by, dpp). Each publishes its catalog and wallet in machine-readable form
+  and sells through **x402**, so an agent reads listings directly and pays over plain HTTP, with no account and no
+  checkout form. Hunter searches every store at once and streams results as they arrive: the first listing comes back
+  in well under a second, each listing gets its safety verdict 0.2-0.3 s after its page loads, and a full search and
   screening finishes in 5-12 s. Safety checks run while the search streams, so they add almost no wait.
 - **Security.** The language model never touches the money. It reads listings, so a scam listing can talk to it, and
   that's exactly why it gets no say over payment. A payment **Gate** screens every listing as it streams in and checks
