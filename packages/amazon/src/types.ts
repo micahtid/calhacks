@@ -32,6 +32,7 @@ export type Item = {
 // Both sell the scraped Amazon listings. The scam store rewrites each one with adapt.
 export type Store = {
   title: string;
+  brand: string;
   company: string;
   adapt?: (item: Item) => Item;
   deliverTo: string;

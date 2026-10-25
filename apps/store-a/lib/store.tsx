@@ -1,8 +1,9 @@
 import { Cutoff, type Store } from "@calhacks/amazon";
 
 export const store: Store = {
-  title: "Amazon.com. Spend less. Smile more.",
-  company: "Amazon.com, Inc.",
+  title: "mzn. Spend less. Smile more.",
+  brand: "mzn",
+  company: "mzn, Inc.",
   deliverTo: "Lincoln 68508",
   deliveryDays: [5],
   fastDays: [1],
@@ -15,9 +16,9 @@ export const store: Store = {
   },
   listing: {
     deliveryNote: <Cutoff />,
-    shipsFrom: "Amazon",
+    shipsFrom: "mzn",
     returns: "FREE 90-Day Refund/Replacement",
     payment: "Secure Transaction",
-    storeLabel: "Amazon Fashion",
+    storeLabel: "mzn Fashion",
   },
 };

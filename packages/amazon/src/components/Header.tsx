@@ -5,7 +5,7 @@ import type { Store } from "../types";
 
 const NAV = ["Today's Deals", "Prime Video", "Registry", "Gift Cards", "Customer Service", "Sell", "Best Sellers", "New Releases", "Books", "Fashion"];
 // The department bar lists the catalog's own biggest categories, so it follows whatever is listed.
-export default function Header({ store, categories }: { store: Store; categories?: string[] }) {
+export default function Header({ store, categories, query }: { store: Store; categories?: string[]; query?: string }) {
   return (
     <header>
       {store.banner}
@@ -17,11 +17,11 @@ export default function Header({ store, categories }: { store: Store; categories
           <Pin />
           <span className="nav-line-2">Update Location</span>
         </div>
-        <form className="nav-search" action="/" role="search">
+        <form className="nav-search" action="/s" role="search">
           <div className="nav-search-scope">
             All <span className="caret" />
           </div>
-          <input type="text" name="k" placeholder="Search Amazon" aria-label="Search Amazon" />
+          <input type="text" name="k" defaultValue={query} placeholder="Search mzn" aria-label="Search mzn" />
           <button type="submit" aria-label="Go">
             <Search />
           </button>
@@ -58,7 +58,7 @@ export default function Header({ store, categories }: { store: Store; categories
       </nav>
       {categories && (
         <div className="subnav">
-          <b>Amazon Fashion</b>
+          <b>mzn Fashion</b>
           {categories.map((label) => (
             <span key={label}>{label}</span>
           ))}

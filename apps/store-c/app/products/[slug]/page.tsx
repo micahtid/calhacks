@@ -1,25 +1,25 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Heart, formatUsd, percentOff } from "@calhacks/common";
+import { Heart, PRERENDERED_ITEMS, formatUsd, percentOff } from "@calhacks/common";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import ProductCard from "@/components/ProductCard";
 import { Shield, Truck } from "@/components/Icons";
 import { getItem, itemsOf } from "@/lib/catalog";
 
-// Every item page is built ahead of time from the catalog, so this route can wait on its params.
+// The top item pages are built ahead of time and the rest render on request, so this route can wait on its params.
 export const instant = false;
 
 const PHOTOS = 6;
 
 export async function generateStaticParams() {
-  return (await itemsOf()).map((item) => ({ slug: item.slug }));
+  return (await itemsOf()).slice(0, PRERENDERED_ITEMS).map((item) => ({ slug: item.slug }));
 }
 
 export async function generateMetadata({ params }: PageProps<"/products/[slug]">): Promise<Metadata> {
   const item = await getItem((await params).slug);
-  return { title: item ? `${item.title} | Depop` : "Depop" };
+  return { title: item ? `${item.title} | dpp` : "dpp" };
 }
 
 export default async function ProductPage({ params }: PageProps<"/products/[slug]">) {
@@ -89,7 +89,7 @@ export default async function ProductPage({ params }: PageProps<"/products/[slug
               <div>
                 <Shield />
                 <p>
-                  All purchases through Depop are covered by Buyer Protection. <u>Learn More</u>
+                  All purchases through dpp are covered by Buyer Protection. <u>Learn More</u>
                 </p>
               </div>
               <div>

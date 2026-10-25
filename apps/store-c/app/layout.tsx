@@ -8,7 +8,7 @@ import "./globals.css";
 const archivo = Archivo({ subsets: ["latin"], axes: ["wdth"], variable: "--font-sans" });
 
 export const metadata: Metadata = {
-  title: "Depop - Buy, Sell, Discover Unique Fashion",
+  title: "dpp - Buy, Sell, Discover Unique Fashion",
   description: "Buy and sell preloved clothing and outerwear.",
 };
 

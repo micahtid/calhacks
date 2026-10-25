@@ -1,12 +1,13 @@
 """Scrape eBay listings for QUERY into MongoDB in the listing format.
 
 Usage (from anywhere): python setup/scrape_ebay.py [--count N] [--continue]
+To run alongside Amazon and Depop, use scrape_all.py so all runs share one Apify gate.
 """
 
 from html.parser import HTMLParser
 from urllib.parse import quote_plus
 
-from apify_common import QUERY, compact, condition, count, listing, num, run, scrape_retrying
+from apify_common import QUERY, cli, compact, condition, count, listing, num, scrape_retrying
 
 PAGE_SIZE = 60  # set with _ipg, and caps each run so the actor never crosses into the next page
 ACTOR = "dtrungtin~ebay-search-scraper"  # Apify Store "eBay Search Scraper", detail pages on by default
@@ -92,9 +93,14 @@ def external_id(it: dict) -> str:
 
 def fetch(token: str, page: int, cap: int) -> list[dict]:
     url = f"https://www.ebay.com/sch/i.html?_nkw={quote_plus(QUERY)}&_pgn={page}&_ipg={PAGE_SIZE}"
-    items = scrape_retrying(token, ACTOR, {"startUrls": [{"url": url}], "maxItems": cap}, f"listing[p{page}]")
+    # fixed 128 MB: this run is a thin wrapper, the browser work runs on the actor developer's account
+    items = scrape_retrying(token, ACTOR, {"startUrls": [{"url": url}], "maxItems": cap}, f"ebay listing[p{page}]",
+                            min_memory=128, scale=False, priority=0)
     return [it for it in items if it.get("itemNumber")]
 
 
+SPEC = {"marketplace": "ebay", "fetch": fetch, "external_id": external_id, "page_size": PAGE_SIZE,
+        "build": lambda token, items: [to_listing(it) for it in items]}
+
 if __name__ == "__main__":
-    run("ebay", fetch, external_id, lambda token, items: [to_listing(it) for it in items], PAGE_SIZE)
+    cli(SPEC)

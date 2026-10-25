@@ -1,12 +1,16 @@
 """Scrape Amazon listings for QUERY, then their reviews, into MongoDB in the listing format.
 
 Usage (from anywhere): python setup/scrape_amazon.py [--count N] [--continue]
+                       python setup/scrape_amazon.py --backfill-reviews   (listings saved without reviews)
+To run alongside eBay and Depop, use scrape_all.py so all runs share one Apify gate.
 """
 
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import quote_plus
 
-from apify_common import QUERY, compact, condition, listing, run, scrape, scrape_retrying
+from apify_common import (QUERY, Gate, cli, compact, condition, listing, load_env, mongo, save_listings, scrape,
+                          scrape_retrying)
 
 PAGE_SIZE = 60  # Amazon search pages hold ~50-60 results, a smaller page just reads as finished
 PRODUCTS_ACTOR = "junglee~amazon-crawler"  # Apify Store "Amazon Product Scraper"
@@ -15,7 +19,8 @@ PRODUCTS_INPUT = {
     "scrapeProductDetails": True,
     "scrapeSellers": True,  # needed for seller rating
     "maxOffers": 0,
-    "countryCode": "US",
+    # no countryCode: amazon.com already delivers to the US with the same prices, and setting it
+    # adds a $0.06 deliveryLocation charge per product (12x the $0.005 base price)
 }
 REVIEWS_ACTOR = "junglee~amazon-reviews-scraper"  # Apify Store "Amazon Reviews Scraper"
 REVIEWS_TIMEOUT = 120  # seconds; runs usually take 10-40s, but one has hung for 18 minutes
@@ -85,37 +90,56 @@ def external_id(p: dict) -> str:
 def fetch(token: str, page: int, cap: int) -> list[dict]:
     url = f"https://www.amazon.com/s?k={quote_plus(QUERY)}&page={page}"
     input = {**PRODUCTS_INPUT, "categoryOrProductUrls": [{"url": url}], "maxItemsPerStartUrl": cap}
-    return [p for p in scrape_retrying(token, PRODUCTS_ACTOR, input, f"listing[p{page}]") if p.get("asin")]
+    items = scrape_retrying(token, PRODUCTS_ACTOR, input, f"amazon listing[p{page}]",
+                            min_memory=2048, priority=0)  # peaked at 1.5 GB
+    return [p for p in items if p.get("asin")]
 
 
-def add_reviews(token: str, listings: list[dict], save) -> None:
-    """Fetch each saved listing's reviews and save it again as soon as they arrive.
+def add_reviews(token: str, l: dict) -> None:
+    """Fetch one saved listing's reviews (one run per product: the actor allows 1 URL and 10 reviews).
 
     Reviews are extras: a failed or timed-out run leaves that listing with fewer or no reviews
     instead of stopping the scrape.
     """
-    # ponytail: a listing saved without reviews (failed run, or the script stopped) is never
-    # revisited, since --continue skips it. Add a backfill pass if that starts to matter.
-    def one(l: dict) -> None:
-        asin = l["source"]["externalId"]
-        try:
-            reviews = scrape(token, REVIEWS_ACTOR,
-                             {**REVIEWS_INPUT, "productUrls": [{"url": f"https://www.amazon.com/dp/{asin}"}]},
-                             f"review[{asin}]", timeout=REVIEWS_TIMEOUT)
-        except SystemExit as e:  # run FAILED or ABORTED
-            print(f"reviews for {asin} skipped: {e}")
-            return
-        for r in reviews:
-            if "error" in r:  # actor emits error items, e.g. product with no reviews
-                print(f"reviews error for {asin}: {r['error']}")
-        l["reviews"] = [to_review(r) for r in reviews if "error" not in r]
-        save([l])
+    # --continue skips listings already saved, so one left without reviews (failed run, or the
+    # script stopped) is only revisited by --backfill-reviews
+    asin = l["source"]["externalId"]
+    try:
+        reviews = scrape(token, REVIEWS_ACTOR,
+                         {**REVIEWS_INPUT, "productUrls": [{"url": f"https://www.amazon.com/dp/{asin}"}]},
+                         f"amazon review[{asin}]", timeout=REVIEWS_TIMEOUT,
+                         min_memory=1024)  # peaked at 250 MB; 512 MB crashes on an actor bug
+    except SystemExit as e:  # run FAILED or ABORTED, or the account stayed at its limit too long
+        print(f"reviews for {asin} skipped: {e}")
+        return
+    for r in reviews:
+        if "error" in r:  # actor emits error items, e.g. product with no reviews
+            print(f"reviews error for {asin}: {r['error']}")
+    l["reviews"] = [to_review(r) for r in reviews if "error" not in r]
 
-    # maxReviews caps the whole run, not each product, so run once per product.
-    # 2 at a time: each run takes 4 GB and the free plan allows 16 GB across all runs.
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        list(pool.map(one, listings))
 
+def backfill_reviews() -> None:
+    """Fetch reviews for every Amazon listing in MongoDB that has none."""
+    # ponytail: products that truly have no reviews are retried on every backfill, ~$0.002 each
+    token, db = load_env(), mongo()
+    todo = list(db.listings.find({"source.marketplace": "amazon", "reviews": []}))
+    print(f"{len(todo)} amazon listings without reviews")
+
+    def one(l: dict) -> bool:
+        add_reviews(token, l)
+        save_listings(db, [l])
+        return bool(l["reviews"])
+
+    with ThreadPoolExecutor(max_workers=Gate.SLOTS) as pool:  # GATE decides how many actually run
+        filled = sum(pool.map(one, todo))
+    print(f"\n{filled}/{len(todo)} now have reviews")
+
+
+SPEC = {"marketplace": "amazon", "fetch": fetch, "external_id": external_id, "page_size": PAGE_SIZE,
+        "build": lambda token, items: [to_listing(p) for p in items], "enrich_one": add_reviews}
 
 if __name__ == "__main__":
-    run("amazon", fetch, external_id, lambda token, items: [to_listing(p) for p in items], PAGE_SIZE, add_reviews)
+    if sys.argv[1:] == ["--backfill-reviews"]:
+        backfill_reviews()
+    else:
+        cli(SPEC)

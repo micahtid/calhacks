@@ -3,15 +3,16 @@ import { NextResponse, connection, type NextRequest } from "next/server";
 import { withX402, x402ResourceServer } from "@x402/next";
 import { HTTPFacilitatorClient } from "@x402/core/server";
 import { ExactEvmScheme } from "@x402/evm/exact/server";
+import allowlist from "../../../contracts/allowlist.json";
 import { formatUsd } from "./format";
+import { searchItems, type Marketplace } from "./market";
 
 // Every store takes USDC on the Base Sepolia testnet, and the x402.org facilitator checks and settles each payment.
+// The network and the payment timeout come from contracts/allowlist.json, the same policy the Gate and the agent check.
 export const PAYMENT = {
-  network: "eip155:84532",
-  networkName: "Base Sepolia",
+  network: allowlist.networks[0] as `${string}:${string}`,
   currency: "USDC",
-  usdc: "0x036CbD53842c5426634e7929541eC2318f3dCF7e", // This is Circle's USDC contract on Base Sepolia.
-  explorer: "https://sepolia.basescan.org",
+  maxTimeoutSeconds: allowlist.max_timeout_s,
 } as const;
 
 // A listing is a store item reduced to what checkout needs. The key is the ID the store already puts in its item URLs.
@@ -27,6 +28,8 @@ export type Listing = {
 // Each store describes itself once, and the same checkout runs on top of it. The listings load from the scraped catalog.
 export type Merchant = {
   name: string;
+  // The marketplace the listings were scraped from. A catalog search ranks that marketplace's listings by the query.
+  marketplace: Marketplace;
   listings: () => Promise<Listing[]>;
 };
 
@@ -95,7 +98,7 @@ export function checkoutRoute(merchant: Merchant) {
           network: PAYMENT.network,
           payTo: () => payTo(),
           price: async (ctx) => formatUsd((await listingAt(merchant, ctx.path))!.price),
-          maxTimeoutSeconds: 120,
+          maxTimeoutSeconds: PAYMENT.maxTimeoutSeconds,
         },
         description: `${merchant.name} checkout`,
         mimeType: "application/json",
@@ -113,9 +116,11 @@ export function checkoutRoute(merchant: Merchant) {
 }
 
 // GET /api/catalog lists every listing with where to view it and where to buy it.
+// GET /api/catalog?q=fleece lists only the listings closest to the query, best first, so an agent can crawl what the shopper asked for.
 export function catalogRoute(merchant: Merchant) {
-  return async function GET() {
-    const listings = await merchant.listings();
+  return async function GET(req: NextRequest) {
+    const query = req.nextUrl.searchParams.get("q")?.trim() ?? "";
+    const listings = await searchItems(merchant.marketplace, query, await merchant.listings(), (listing) => listing.key);
     return Response.json({
       store: merchant.name,
       currency: PAYMENT.currency,
