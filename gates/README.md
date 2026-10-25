@@ -89,6 +89,8 @@ non-200 is `skip`). It needs Python (LightGBM) and Node (Layer 1), so it is a Do
 - Deployed as the `gate` service in the `hntr` project (Singapore, next to the agent API), public URL
   `https://gate-production-3ea8.up.railway.app`, which is the agent API's `GATE_URL`. Railway's private address
   (`http://gate.railway.internal:8080`) is not used yet: the service listens on IPv4 only.
+- The image sets `OMP_NUM_THREADS=1`: LightGBM's default thread pool per concurrent request exhausted the container's
+  threads on Railway and restarted the service mid-search.
 - Endpoints: `POST /screen` (the agent's screening of every search listing, from the page its crawler read),
   `POST /decide` (`GateRequest` → `GateDecision`, the full check before paying; `POST /gate/risk` is an alias), `GET /health`,
   `GET /version` (model id, feature-code hash, threshold, contracts version). Layer 1 runs in one long-lived Node
