@@ -4,6 +4,7 @@
   uv run --project redteam python -m redteam.plant [--rate 0.05] [--seed 1]
   uv run --project redteam python -m redteam.plant --key                # answer key as JSONL (id, marketplace, family, diff)
   uv run --project redteam python -m redteam.plant --undo               # restore every planted listing
+  uv run --project redteam python -m redteam.plant --only ID=FAMILY ...  # plant chosen listings (demos), on top of the rest
 
 The red-team rule from mutate.py applies: a seeded pick of `rate` of each marketplace's sellable listings (price and a
 photo), one family per listing, and only that family's fields change (mutate.ALLOWED_DIFF, mapped to the scraped
@@ -213,6 +214,8 @@ def main(argv=None) -> int:
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--undo", action="store_true")
     ap.add_argument("--key", action="store_true", help="print the answer key as JSONL")
+    ap.add_argument("--only", nargs="+", metavar="ID=FAMILY",
+                    help="plant these listings with these families (for demos), on top of whatever is planted")
     a = ap.parse_args(argv)
     coll = collection()
     if a.undo:
@@ -222,11 +225,22 @@ def main(argv=None) -> int:
         for row in key(coll):
             print(json.dumps(row))
         return 0
-    if coll.count_documents({"scam": {"$exists": True}}):
+    if not a.only and coll.count_documents({"scam": {"$exists": True}}):
         print(json.dumps({"error": "listings are already planted; run --undo first"}))
         return 2
-    docs = list(coll.find(SELLABLE, {"item.images": 0}))
-    new_docs = updates(docs, plan(docs, a.rate, a.seed), a.seed)
+    docs = list(coll.find({**SELLABLE, "scam": {"$exists": False}}, {"item.images": 0}))
+    if a.only:
+        by_id = {d["id"]: d for d in docs}
+        picks = []
+        for spec in a.only:
+            lid, _, fam = spec.partition("=")
+            if lid not in by_id or fam not in FAMILIES or not eligible(fam, by_id[lid]):
+                print(json.dumps({"error": f"{spec}: unknown or already planted listing, unknown family, or not eligible"}))
+                return 2
+            picks.append((by_id[lid], fam))
+    else:
+        picks = plan(docs, a.rate, a.seed)
+    new_docs = updates(docs, picks, a.seed)
     for d in new_docs:  # photos were left out of the read; keep them on the write
         d["item"]["images"] = coll.find_one({"id": d["id"]}, {"item.images": 1})["item"]["images"]
     print(json.dumps(summary(new_docs), indent=1, ensure_ascii=False))
