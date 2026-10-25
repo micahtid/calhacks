@@ -86,6 +86,9 @@ non-200 is `skip`). It needs Python (LightGBM) and Node (Layer 1), so it is a Do
   (default `gates/CURRENT`; as a build variable it also picks what is installed). With `GATE_STORES` set the Gate
   reads every listing from the live store itself (`gatepy.live`: catalog, item page, `store.json` and the unpaid
   402) and needs no database. Without it, it reads listings by id from `MONGODB_URI` / `MONGODB_DB_REDTEAM`.
+- Deployed as the `gate` service in the `hntr` project (Singapore, next to the agent API), public URL
+  `https://gate-production-3ea8.up.railway.app`, which is the agent API's `GATE_URL`. Railway's private address
+  (`http://gate.railway.internal:8080`) is not used yet: the service listens on IPv4 only.
 - Endpoints: `POST /screen` (the agent's screening of every search listing, from the page its crawler read),
   `POST /decide` (`GateRequest` → `GateDecision`, the full check before paying; `POST /gate/risk` is an alias), `GET /health`,
   `GET /version` (model id, feature-code hash, threshold, contracts version). Layer 1 runs in one long-lived Node

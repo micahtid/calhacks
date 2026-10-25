@@ -549,7 +549,7 @@ Keep this section current (see `AGENTS.md`).
 - [x] Gate Layer 2: LightGBM risk model trained and evaluated on MongoDB data, `POST /gate/risk`
 - [x] Gate service and release archive: `gate/Dockerfile` (Railway), `POST /decide`, `gates/` with the red-teamed
   `r2-f0bfbd` as `CURRENT`
-- [ ] Gate service deployed on Railway (it reads live store listings itself, no database needed) and `GATE_URL` set on the agent API
+- [x] Gate service deployed on Railway (`gate`, same project and region as the agent API, `r3-be84bc`), `GATE_URL` set on the agent API
 - [ ] Wallet signer + x402 payment against Base Sepolia
 - [x] Bitdeer attack generation from real MongoDB listings (`mutate_real` / `generate`), labels and attack diffs set by code
 - [ ] Labeled dataset generated from real listings (blocked on real listings in MongoDB)
