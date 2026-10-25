@@ -14,6 +14,12 @@
   --amber: #d97706;
   --red: #d4402f;
   --red-tint: rgba(212, 64, 47, 0.07);
+  /* Motion: one calm ease-out curve, and three speeds. Fast is hover feedback, base is a change of state (selecting,
+     toggling, popping in), slow is movement (entering, folding, sliding, resizing, fading). */
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --fast: 0.2s;
+  --base: 0.4s;
+  --slow: 0.6s;
 }
 
 * {
@@ -242,7 +248,7 @@ svg {
   color: var(--text-3);
   border-radius: 5px;
   opacity: 0;
-  transition: opacity 0.15s, color 0.15s;
+  transition: opacity var(--fast) var(--ease), color var(--fast) var(--ease);
 }
 
 .chat-row:hover .chat-delete,
@@ -289,6 +295,53 @@ svg {
 
 .sb-spacer {
   flex: 1;
+}
+
+/* A sidebar row with a switch at its end. Locked switches keep the row readable but quieter. */
+.toggle-row {
+  cursor: default;
+}
+
+.toggle-row:hover {
+  background: none;
+  color: var(--text-2);
+}
+
+.switch {
+  appearance: none;
+  position: relative;
+  width: 26px;
+  height: 16px;
+  flex-shrink: 0;
+  background: var(--border-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background var(--base) var(--ease);
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform var(--base) var(--ease);
+}
+
+.switch:checked {
+  background: var(--text);
+}
+
+.switch:checked::after {
+  transform: translateX(10px);
+}
+
+.switch:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 /* Main panel */
@@ -448,6 +501,7 @@ svg {
   height: 6px;
   border-radius: 50%;
   background: var(--text-4);
+  transition: background var(--base) var(--ease);
 }
 
 .badge.bought::before {
@@ -572,11 +626,28 @@ svg {
 .tx-row {
   position: relative;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 150px) minmax(0, 96px) 24px;
+  grid-template-columns: 40px minmax(0, 1fr) minmax(0, 150px) minmax(0, 96px) 24px;
   align-items: center;
-  gap: 20px;
+  gap: 16px;
   min-height: 64px;
-  padding: 12px 12px 12px 16px;
+  padding: 12px 12px 12px 12px;
+}
+
+.tx-photo {
+  width: 40px;
+  height: 40px;
+  padding: 3px;
+  object-fit: contain;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.tx-photo.empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-4);
+  background: var(--panel);
 }
 
 .tx-row + .tx-row {
@@ -738,9 +809,7 @@ kbd {
   border-radius: 4px;
 }
 
-/* One calm curve for everything that moves in the run. */
 .run {
-  --ease: cubic-bezier(0.22, 1, 0.36, 1);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -748,7 +817,7 @@ kbd {
 }
 
 .stage {
-  animation: rise 0.7s var(--ease) both;
+  animation: rise var(--slow) var(--ease) both;
 }
 
 .stage-head {
@@ -761,7 +830,7 @@ kbd {
   margin: 0 -8px;
   text-align: left;
   border-radius: 8px;
-  transition: background 0.3s;
+  transition: background var(--fast) var(--ease);
 }
 
 .stage-head:disabled {
@@ -797,7 +866,7 @@ kbd {
   display: grid;
   place-items: center;
   color: var(--text-4);
-  transition: transform 0.4s var(--ease);
+  transition: transform var(--base) var(--ease);
 }
 
 .stage-chevron.open {
@@ -816,7 +885,7 @@ kbd {
   border-radius: 50%;
   flex-shrink: 0;
   border: 1.5px solid var(--border-strong);
-  transition: background 0.4s, border-color 0.4s;
+  transition: background var(--base) var(--ease), border-color var(--base) var(--ease);
 }
 
 .stage-icon.active {
@@ -830,7 +899,7 @@ kbd {
   color: #fff;
   background: var(--text);
   border-color: var(--text);
-  animation: pop 0.45s var(--ease) both;
+  animation: pop var(--base) var(--ease) both;
 }
 
 /* Folding animates the grid row from 0fr to 1fr, so open and close are smooth at any content height. */
@@ -838,7 +907,7 @@ kbd {
   display: grid;
   grid-template-rows: 0fr;
   opacity: 0;
-  transition: grid-template-rows 0.7s var(--ease), opacity 0.5s var(--ease);
+  transition: grid-template-rows var(--slow) var(--ease), opacity var(--slow) var(--ease);
 }
 
 .stage-fold.open {
@@ -851,10 +920,44 @@ kbd {
   overflow: hidden;
 }
 
+/* Follows the stage body's measured height (useHeight), so content changes glide instead of jumping. */
+.stage-size {
+  overflow: hidden;
+  transition: height var(--slow) var(--ease);
+}
+
+/* A very quiet way back: small, grey, and tucked close to what it goes back from. */
+.back-link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 20px;
+  margin: -4px 0 -8px -3px;
+  padding: 0 4px 0 0;
+  color: var(--text-4);
+  font-size: 12px;
+  border-radius: 5px;
+  transition: color var(--fast) var(--ease), opacity var(--fast) var(--ease);
+  animation: rise var(--slow) var(--ease) both;
+}
+
+.back-link svg {
+  transform: rotate(90deg);
+}
+
+.back-link:hover:not(:disabled) {
+  color: var(--text-2);
+}
+
+.back-link:disabled {
+  opacity: 0.4;
+}
+
 .stage-body {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   margin-left: 7.5px;
   padding: 6px 0 18px 18px;
   border-left: 1px solid var(--border);
@@ -870,42 +973,28 @@ kbd {
   background-size: 250% 100%;
   -webkit-background-clip: text;
   background-clip: text;
-  animation: shimmer 2.4s linear infinite, rise 0.5s var(--ease) both;
+  animation: shimmer 2.4s linear infinite, rise var(--slow) var(--ease) both;
 }
 
 .run .muted {
   font-size: 12.5px;
 }
 
-.thoughts {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  list-style: none;
-}
 
-.thoughts:empty {
-  display: none;
-}
 
-.thoughts li {
-  color: var(--text-2);
-  font-size: 13px;
-  line-height: 1.6;
-  animation: rise 0.8s var(--ease) both;
-}
 
 .instruction {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 12px 14px;
+  gap: 8px;
+  padding: 12px 16px;
   font-size: 14px;
   color: var(--text-2);
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
-  animation: rise 0.8s var(--ease) both;
+  animation: rise var(--slow) var(--ease) both;
 }
 
 /* A question Hunter is waiting on: a column of numbered options, with typing your own answer as the last row. */
@@ -913,7 +1002,7 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  animation: rise 0.8s var(--ease) both;
+  animation: rise var(--slow) var(--ease) both;
 }
 
 .ask-text {
@@ -939,7 +1028,7 @@ kbd {
   color: var(--text);
   font-size: 13.5px;
   text-align: left;
-  transition: background 0.2s var(--ease), opacity 0.4s var(--ease);
+  transition: background var(--fast) var(--ease), opacity var(--base) var(--ease);
 }
 
 .ask-row + .ask-row {
@@ -1023,16 +1112,31 @@ button.ask-row:hover:not(:disabled) {
 
 .answers li {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
-  color: var(--text);
-  animation: rise 0.8s var(--ease) both;
+  color: var(--text-3);
+  animation: rise var(--slow) var(--ease) both;
 }
 
 .instruction strong {
+  margin-right: 4px;
   color: var(--text);
-  font-weight: 600;
+  font-weight: 500;
+}
+
+/* A small detail tag: the request's chips and an answer's reply. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  color: var(--text-2);
+  font-size: 12px;
+  white-space: nowrap;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
 }
 
 .feed {
@@ -1063,8 +1167,8 @@ button.ask-row:hover:not(:disabled) {
   padding: 0 14px;
   overflow: hidden;
   font-size: 12.5px;
-  transition: background 0.4s;
-  animation: feed-in 0.6s var(--ease) both;
+  transition: background var(--base) var(--ease);
+  animation: feed-in var(--slow) var(--ease) both;
 }
 
 .feed-row + .feed-row {
@@ -1080,7 +1184,7 @@ button.ask-row:hover:not(:disabled) {
 
 .feed-title {
   color: var(--text-2);
-  transition: color 0.4s;
+  transition: color var(--base) var(--ease);
 }
 
 .feed-store {
@@ -1103,7 +1207,7 @@ button.ask-row:hover:not(:disabled) {
   height: 5px;
   border-radius: 50%;
   background: var(--border-strong);
-  transition: background 0.4s;
+  transition: background var(--base) var(--ease);
 }
 
 .feed-row.scanning {
@@ -1116,7 +1220,7 @@ button.ask-row:hover:not(:disabled) {
 
 .feed-row.verified .feed-mark {
   color: var(--green);
-  animation: pop 0.45s var(--ease) both;
+  animation: pop var(--base) var(--ease) both;
 }
 
 /* Rejected listings flash red, show their reason, then settle to a soft tint as they scroll away. Height never
@@ -1152,7 +1256,7 @@ button.ask-row:hover:not(:disabled) {
   align-items: center;
   gap: 14px;
   padding: 14px 16px;
-  transition: opacity 0.8s var(--ease), background 0.8s var(--ease);
+  transition: opacity var(--base) var(--ease), background var(--base) var(--ease);
 }
 
 .pick + .pick {
@@ -1176,7 +1280,7 @@ button.ask-row:hover:not(:disabled) {
   color: #fff;
   border: 1.5px solid var(--border-strong);
   border-radius: 50%;
-  transition: background 0.5s var(--ease), border-color 0.5s var(--ease);
+  transition: background var(--base) var(--ease), border-color var(--base) var(--ease);
 }
 
 .pick.chosen .pick-mark {
@@ -1185,7 +1289,7 @@ button.ask-row:hover:not(:disabled) {
 }
 
 .pick.chosen .pick-mark svg {
-  animation: pop 0.45s var(--ease) both;
+  animation: pop var(--base) var(--ease) both;
 }
 
 .pick-main {
@@ -1198,22 +1302,475 @@ button.ask-row:hover:not(:disabled) {
   align-items: center;
 }
 
-.best {
-  flex-shrink: 0;
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--green);
-  border: 1px solid rgba(34, 160, 82, 0.35);
-  border-radius: 999px;
-  animation: rise 0.6s var(--ease) both;
-}
 
 .pick-price {
   text-align: right;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
+
+/* The qualified grid: photos only, a page at a time. */
+.qualified {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 4px;
+  animation: rise var(--slow) var(--ease) both;
+}
+
+.qualified-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.grid-window {
+  overflow-x: clip;
+  overflow-y: visible;
+}
+
+.grid-track {
+  display: flex;
+  transition: transform var(--slow) var(--ease);
+}
+
+/* The layout never moves. Hover only scales and fades tiles, which the browser animates on the GPU. */
+.grid-page {
+  flex: 0 0 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 312px;
+}
+
+.grid-page.rows-1 {
+  height: 152px;
+}
+
+.grid-row {
+  flex: 1 1 0;
+  display: flex;
+  gap: 8px;
+  min-height: 0;
+}
+
+.grid-tile {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  will-change: transform;
+  transition: transform var(--base) var(--ease), opacity var(--base) var(--ease), border-color var(--base) var(--ease);
+}
+
+/* Edge tiles grow inward, so the window never clips them. */
+.grid-row > .grid-tile:first-child {
+  transform-origin: left center;
+}
+
+.grid-row > .grid-tile:last-child {
+  transform-origin: right center;
+}
+
+.grid-tile.gap {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* The hovered photo is set in state (AgentRun's Qualified), so the gaps between photos never reset it. */
+.grid-page.lit .grid-tile {
+  opacity: 0.88;
+  transform: scale(0.992);
+}
+
+.grid-page.lit .grid-tile.hot {
+  opacity: 1;
+  transform: scale(1.025);
+  border-color: var(--border-strong);
+  z-index: 1;
+}
+
+/* Contained, not cropped: product photos sit on white, so a growing tile shows more of the same photo. */
+/* Photos fade in as they load instead of popping in. */
+.grid-photo {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 10px;
+  object-fit: contain;
+  opacity: 0;
+  transition: opacity var(--slow) var(--ease);
+}
+
+.grid-photo.ready,
+.grid-photo.empty {
+  opacity: 1;
+}
+
+.grid-photo.empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-4);
+}
+
+.grid-tile.chosen {
+  border-color: var(--text);
+  outline: 1px solid var(--text);
+  outline-offset: -2px;
+}
+
+.grid-tile.locked:not(.chosen) {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* The order each favorite was picked in, in the corner. */
+.grid-check {
+  position: absolute;
+  top: 7px;
+  right: 7px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  background: var(--text);
+  border-radius: 50%;
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity var(--base) var(--ease), transform var(--base) var(--ease);
+}
+
+.grid-tile.chosen .grid-check {
+  opacity: 1;
+  transform: none;
+}
+
+.grid-foot {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pager-arrow {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--surface);
+  transition: background var(--fast) var(--ease), opacity var(--fast) var(--ease);
+}
+
+.pager-arrow.back svg {
+  transform: rotate(90deg);
+}
+
+.pager-arrow.next svg {
+  transform: rotate(-90deg);
+}
+
+.pager-arrow:hover:not(:disabled) {
+  background: var(--bg);
+}
+
+.pager-arrow:disabled {
+  opacity: 0.4;
+}
+
+/* A dark thumb slides along the dots to the current page. Each dot is 6px with 8px between, so a page is 14px. */
+.pager-dots {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pager-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--border-strong);
+}
+
+.pager-thumb {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  margin-top: -3px;
+  border-radius: 999px;
+  background: var(--text);
+  pointer-events: none;
+  transition: transform var(--slow) var(--ease);
+}
+
+.grid-count {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.button.primary {
+  color: #fff;
+  background: var(--text);
+  border-color: var(--text);
+  transition: background var(--base) var(--ease), border-color var(--base) var(--ease), color var(--base) var(--ease);
+}
+
+.button.primary:hover:not(:disabled) {
+  background: #333;
+}
+
+.button.primary:disabled {
+  color: var(--text-4);
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+/* The second Confirm pays, so it turns green to show it is the real thing. */
+.offer-actions .button.primary {
+  min-width: 148px;
+}
+
+.button.primary.armed,
+.button.primary.armed:hover:not(:disabled) {
+  background: var(--green);
+  border-color: var(--green);
+}
+
+/* The weighed favorites: photo, store and note, the four factor bars, then the score and price. */
+.weigh-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px 12px 12px;
+  font-size: 12.5px;
+  transition: opacity var(--base) var(--ease), background var(--base) var(--ease);
+  animation: rise var(--slow) var(--ease) both;
+}
+
+.weigh-row + .weigh-row {
+  border-top: 1px solid var(--border);
+}
+
+.weigh-row.chosen {
+  background: rgba(34, 160, 82, 0.05);
+}
+
+.weigh-row.passed {
+  opacity: 0.45;
+}
+
+/* While the user can still switch, the other favorites stay readable enough to invite a click. */
+.weigh-row.passed.choosable {
+  opacity: 0.6;
+}
+
+.weigh-photo {
+  width: 44px;
+  height: 44px;
+  padding: 4px;
+  flex-shrink: 0;
+  object-fit: contain;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.weigh-photo.empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-4);
+}
+
+
+/* The score as a short bar that fills to its length, with the number after it. Green on the best row. */
+.score-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 7px;
+}
+
+/* The unfilled track is a clear grey, so the missing part of the score reads as easily as the filled part. */
+.score-bar {
+  width: 96px;
+  height: 5px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.1);
+  border-radius: 999px;
+}
+
+.weigh-row.recommended .score-bar {
+  background: rgba(34, 160, 82, 0.18);
+}
+
+.score-bar span {
+  display: block;
+  height: 100%;
+  background: var(--text-2);
+  border-radius: inherit;
+  transform-origin: left;
+  animation: fill 0.9s var(--ease) both;
+}
+
+.weigh-row.recommended .score-bar span {
+  background: var(--green);
+}
+
+.score {
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.weigh-row.recommended .score {
+  color: var(--green);
+}
+
+/* Rows the user can switch between, like radio buttons. */
+.weigh-row.choosable {
+  cursor: pointer;
+}
+
+.weigh-row.choosable:focus-visible {
+  outline: 2px solid var(--text-4);
+  outline-offset: -2px;
+}
+
+/* The item Hunter would buy, waiting on the user's go-ahead. */
+.offer {
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  animation: rise var(--slow) var(--ease) both;
+}
+
+.offer-top {
+  animation: fade var(--slow) var(--ease) both;
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 16px;
+  padding: 16px;
+}
+
+.offer-photo {
+  width: 120px;
+  height: 120px;
+  padding: 8px;
+  object-fit: contain;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.offer-photo.empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-4);
+}
+
+.offer-main {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.offer-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  margin-bottom: 3px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.45;
+  color: var(--text);
+}
+
+.offer-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+.offer-price-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 8px;
+}
+
+.offer-price {
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.offer-price-row .receipt-link {
+  color: var(--text-3);
+  font-size: 12.5px;
+}
+
+.offer-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+
+.offer-note {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-3);
+  font-size: 12px;
+}
+
+.receipt-photo {
+  width: 64px;
+  height: 64px;
+  flex-shrink: 0;
+  padding: 6px;
+  object-fit: contain;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.receipt-photo.empty {
+  display: grid;
+  place-items: center;
+  color: var(--text-4);
+}
+
 
 .checkout {
   display: flex;
@@ -1239,7 +1796,7 @@ button.ask-row:hover:not(:disabled) {
 
 .step-mark svg {
   color: var(--green);
-  animation: pop 0.45s var(--ease) both;
+  animation: pop var(--base) var(--ease) both;
 }
 
 .step-mark .stage-icon {
@@ -1249,7 +1806,7 @@ button.ask-row:hover:not(:disabled) {
 
 .checkout-label {
   color: var(--text);
-  transition: color 0.4s;
+  transition: color var(--base) var(--ease);
 }
 
 .checkout li.pending .checkout-label {
@@ -1257,21 +1814,21 @@ button.ask-row:hover:not(:disabled) {
 }
 
 .checkout li .cell-sub {
-  animation: rise 0.6s var(--ease) both;
+  animation: rise var(--slow) var(--ease) both;
 }
 
 /* The step where Hunter stopped without paying: a failed check, or no wallet key on the server. */
 .step-mark .stage-icon.stopped {
   border-color: var(--amber);
   background: var(--amber);
-  animation: pop 0.45s var(--ease) both;
+  animation: pop var(--base) var(--ease) both;
 }
 
 .finish {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  margin-top: 14px;
+  gap: 16px;
+  margin-top: 16px;
 }
 
 .receipt {
@@ -1279,51 +1836,70 @@ button.ask-row:hover:not(:disabled) {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 10px;
-  animation: rise 0.9s var(--ease) both;
+  animation: rise var(--slow) var(--ease) both;
+}
+
+.receipt-top {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+}
+
+.receipt-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
 
 .receipt-total {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 16px;
-  border-bottom: 1px solid var(--border);
+  align-items: center;
+  gap: 8px;
 }
 
 .receipt-item {
-  margin-top: 4px;
-  color: var(--text);
-}
-
-.receipt-amount {
-  font-size: 22px;
-  font-weight: 500;
-  letter-spacing: -0.02em;
-  font-variant-numeric: tabular-nums;
-}
-
-.receipt-rows {
-  padding: 10px 16px 12px;
-}
-
-.receipt-row {
-  display: grid;
-  grid-template-columns: 110px minmax(0, 1fr);
-  gap: 12px;
-  padding: 5px 0;
-}
-
-.receipt-row dt {
-  color: var(--text-3);
-}
-
-.receipt-row dd {
-  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text);
 }
+
+.paid {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  color: var(--green);
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid rgba(34, 160, 82, 0.35);
+  border-radius: 999px;
+}
+
+.receipt-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  color: var(--text-3);
+  font-size: 12.5px;
+  background: var(--panel);
+  border-top: 1px solid var(--border);
+}
+
+.receipt-amount {
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+
+
+
 
 .receipt-link {
   display: inline-flex;
@@ -1341,19 +1917,8 @@ button.ask-row:hover:not(:disabled) {
   color: var(--text-4);
 }
 
-.finish .instruction {
-  animation-delay: 0.3s;
-}
 
-/* The closing card uses the same green as the Best Match row to mark the purchase as done. */
-.instruction.success {
-  background: rgba(34, 160, 82, 0.05);
-  border-color: rgba(34, 160, 82, 0.3);
-}
 
-.instruction.success svg {
-  color: var(--green);
-}
 
 @keyframes rise {
   from {
@@ -1384,6 +1949,18 @@ button.ask-row:hover:not(:disabled) {
   }
 }
 
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fill {
+  from {
+    transform: scaleX(0);
+  }
+}
+
 @keyframes feed-in {
   from {
     opacity: 0;
@@ -1403,18 +1980,26 @@ button.ask-row:hover:not(:disabled) {
 @media (prefers-reduced-motion: reduce) {
   .stage,
   .stage-icon,
-  .thoughts li,
   .instruction,
   .feed-row,
   .feed-mark,
-  .best,
   .receipt,
-  .checkout li .cell-sub {
+  .checkout li .cell-sub,
+  .qualified,
+  .weigh-row,
+  .score-bar span,
+  .offer,
+  .offer-top,
+  .back-link {
     animation: none;
   }
 
   .stage-fold,
-  .stage-chevron {
+  .stage-size,
+  .stage-chevron,
+  .grid-track,
+  .grid-tile,
+  .pager-thumb {
     transition: none;
   }
 
@@ -1467,13 +2052,46 @@ button.ask-row:hover:not(:disabled) {
     padding: 12px;
   }
 
+  .grid-page {
+    height: 240px;
+  }
+
+  .grid-page.rows-1 {
+    height: 120px;
+  }
+
+  .grid-foot {
+    flex-wrap: wrap;
+  }
+
+  .offer-top {
+    grid-template-columns: 1fr;
+  }
+
+  .offer-photo {
+    width: 100%;
+    height: 180px;
+  }
+
+  .offer-actions {
+    flex-wrap: wrap;
+  }
+
+  .offer-note {
+    flex-basis: 100%;
+  }
+
   .tx-row {
-    grid-template-columns: minmax(0, 1fr) auto 24px;
+    grid-template-columns: 40px minmax(0, 1fr) auto 24px;
     row-gap: 4px;
+  }
+
+  .tx-photo {
+    grid-row: span 2;
   }
 
   .tx-date {
     grid-row: 2;
-    grid-column: 1;
+    grid-column: 2;
   }
 }

@@ -71,7 +71,7 @@ export function App() {
             }}
           />
         )}
-        {view.kind === "transactions" && <Transactions />}
+        {view.kind === "transactions" && <Transactions chats={chats} />}
         {view.kind === "settings" && <Settings />}
       </main>
     </div>

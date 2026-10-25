@@ -40,6 +40,12 @@ export const ChatIcon = () => (
   </Icon>
 );
 
+export const BoltIcon = () => (
+  <Icon>
+    <path d="M9 1.8 3.5 9h4l-.5 5.2L12.5 7h-4z" />
+  </Icon>
+);
+
 export const WalletIcon = () => (
   <Icon>
     <rect x="2" y="4.5" width="12" height="9" rx="1.5" />

@@ -6,14 +6,24 @@ import { api } from "./api";
 
 export type Row = { id: number; at: string; title: string; store: string; price: number; verdict?: "buy" | "skip"; reason?: string };
 
-export type Pick = { at: string; title: string; store: string; price: number; url: string | null; note: string };
+// One qualified listing in the grid the user picks favorites from. Only its photo is shown.
+export type GridItem = { id: string; at: string; title: string; store: string; price: number; image: string | null };
+
+export type Pick = {
+  at: string; title: string; store: string; price: number; url: string | null; note: string;
+  // Weighed favorites only. Picks saved before the grid have none of these.
+  image?: string | null; seller?: string | null; score?: number;
+  // Each weighing factor, 0-1 (app/rank.py FACTORS).
+  factors?: Record<"seller" | "price" | "reviews" | "condition", number>;
+  condition?: string | null; stars?: number | null; reviews?: number; feedback?: number | null;
+};
 
 // One checkout step from app/pay.py. "blocked" means Hunter stopped on purpose (no wallet key on the server).
 export type Step = { state: "done" | "failed" | "blocked"; detail: string };
 
 export type Receipt = {
   item: string; store: string; amount: number; network: string; from: string; to: string;
-  order: string; paidAt: string; txHash: string | null; explorer: string | null;
+  order: string; paidAt: string; txHash: string | null; explorer: string | null; image?: string | null;
 };
 
 // Hunter asks before searching ("understand") when a detail that changes what to buy is missing, and before
@@ -29,7 +39,7 @@ export type Question = {
 
 export type Answer = { stage: Question["stage"]; question: string; text: string };
 
-// Stages: 0 understand, 1 search, 2 gate, 3 pick, 4 pay, 5 finished.
+// Stages: 0 understand, 1 search, 2 gate, 3 pick (grid, then weighing), 4 confirm and pay, 5 finished.
 export type Run = {
   stage: 0 | 1 | 2 | 3 | 4 | 5;
   runId?: string;
@@ -42,13 +52,27 @@ export type Run = {
   // The latest short sentence of the model's thinking per stage. Each one replaces the last.
   reasoning: { understand: string; pick: string };
   thoughts: string[];
-  instruction?: { item: string; query: string; max_price: number | null };
+  instruction?: {
+    item: string; query: string; max_price: number | null; gender?: "men" | "women" | null; size?: string | null;
+  };
   rows: Row[];
   scraped: number;
   gated: number;
   searchDone: boolean;
+  // Every safe listing that is the item, then the ids of the favorites the user picked from them.
+  qualified?: GridItem[];
+  selected?: string[];
+  // After going back, the favorites picked before (by `at`), so the grid shows them picked again.
+  reselect?: string[];
+  // How many times the user went back. The UI uses it to know a Back has landed.
+  backs?: number;
+  // The weighed favorites, best first.
   picks?: Pick[];
   picked: boolean;
+  // Which weighed favorite the user chose, best first. Unset means the best one, the default.
+  choice?: number;
+  // The user's answer to "buy it?": undefined while Hunter waits.
+  confirmed?: boolean;
   steps: Step[];
   paid: number; // checkout steps shown so far
 
@@ -111,6 +135,10 @@ export function titleCase(text: string): string {
     .join(" ");
 }
 
+// "•The North Face fleece #outdoor #hiking" -> "The North Face fleece": resale titles carry bullets and hashtags.
+export const cleanTitle = (title: string | null | undefined) =>
+  (title ?? "").replace(/#[\w-]+/g, "").replace(/^[\s•·*-]+/, "").replace(/\s{2,}/g, " ").trim();
+
 // "mzn, Inc." -> "mzn", "mzn Outlet Ltd." -> "mzn Outlet".
 export const storeLabel = (name: string | null | undefined) => (name ?? "Unknown Store").replace(/,?\s+(Inc|Ltd)\.?$/, "");
 
@@ -141,12 +169,15 @@ export function apply(run: Run, type: string, e: any): Run {
     case "thought":
       return { ...run, thoughts: [...run.thoughts, e.text] };
     case "instruction":
-      return { ...run, instruction: { item: e.item, query: e.query, max_price: e.max_price } };
+      return {
+        ...run,
+        instruction: { item: e.item, query: e.query, max_price: e.max_price, gender: e.gender, size: e.size },
+      };
     case "listing":
       return {
         ...run,
         stage: run.stage === 0 ? 1 : run.stage,
-        rows: [...run.rows, { id: run.rows.length, at: at(e), title: e.title, store: storeLabel(e.storeName), price: e.price }],
+        rows: [...run.rows, { id: run.rows.length, at: at(e), title: cleanTitle(e.title), store: storeLabel(e.storeName), price: e.price }],
       };
     case "verdict": {
       const rows = run.rows.map((row) =>
@@ -156,13 +187,37 @@ export function apply(run: Run, type: string, e: any): Run {
     }
     case "done":
       return { ...run, searchDone: true, stage: run.stage === 0 ? 1 : run.stage };
+    case "qualified":
+      return {
+        ...run,
+        qualified: e.items.map((i: GridItem & { store: string; key: string; storeName: string }) => ({
+          id: i.id, at: at(i), title: cleanTitle(i.title), store: storeLabel(i.storeName), price: i.price, image: i.image,
+        })),
+      };
+    case "selected":
+      return { ...run, selected: e.ids };
     case "pick":
       return {
         ...run,
         picks: e.picks.map((p: Pick & { store: string; key: string; storeName: string }) => ({
-          at: at(p), title: p.title, store: storeLabel(p.storeName), price: p.price, url: p.url, note: p.note,
+          ...p, at: at(p), title: cleanTitle(p.title), store: storeLabel(p.storeName),
         })),
       };
+    case "back": {
+      // Before the search: everything after the kept answers starts over, and the search runs again.
+      const backs = (run.backs ?? 0) + 1;
+      if (e.to === "understand")
+        return { ...START, runId: run.runId, title: run.title, answers: run.answers.slice(0, e.keep), backs };
+      // After it: the narrowing question or the grid comes again. Favorites picked before stay picked.
+      const picked = run.qualified?.filter((i) => run.selected?.includes(i.id)).map((i) => i.at);
+      return {
+        ...run, stage: 3, backs, answers: run.answers.slice(0, e.keep), question: undefined, narrowed: undefined,
+        qualified: undefined, selected: undefined, reselect: picked?.length ? picked : run.reselect, picks: undefined,
+        picked: false, choice: undefined, confirmed: undefined, reasoning: { ...run.reasoning, pick: "" },
+      };
+    }
+    case "confirmed":
+      return { ...run, confirmed: e.ok, choice: e.pick ?? run.choice };
     case "checkout": {
       const steps = [...run.steps];
       steps[e.step] = { state: e.state, detail: e.detail };
@@ -171,11 +226,19 @@ export function apply(run: Run, type: string, e: any): Run {
     case "title":
       return { ...run, title: e.text };
     case "receipt":
-      return { ...run, receipt: e };
+      return { ...run, receipt: { ...e, item: cleanTitle(e.item) } };
     case "end":
       return { ...run, status: e.status };
     case "error":
-      return e.store ? run : { ...run, error: e.message ?? "Hunter ran into a problem and stopped. Try again in a moment." };
+      // A per-store error leaves the run going. An error with nothing in it is the connection dropping, e.g. the
+      // agent API restarting mid-run.
+      if (e.store) return run;
+      return {
+        ...run,
+        error:
+          e.message ??
+          (e.error ? `Something went wrong (${e.error}). Try again.` : "Lost the connection to Hunter. Start a new chat to try again."),
+      };
     default:
       return run;
   }
@@ -183,6 +246,22 @@ export function apply(run: Run, type: string, e: any): Run {
 
 // Sends the user's answer to the question the run is waiting on. The run shows it once the stream echoes it back.
 export const answer = (runId: string, text: string) => api(`/chat/${runId}/answer`, { method: "POST", json: { text } });
+
+// Goes back one step from whatever the run is waiting on. The run resets once the stream sends `back`.
+export const goBack = (runId: string) => api(`/chat/${runId}/back`, { method: "POST" });
+
+// The 1-5 grid items the user likes most, by id. Hunter weighs them and offers the best one.
+export const select = (runId: string, ids: string[]) => api(`/chat/${runId}/select`, { method: "POST", json: { ids } });
+
+// The user's go-ahead to buy the offered item, or false to buy nothing.
+export const confirmPurchase = (runId: string, confirm: boolean, pick: number) =>
+  api(`/chat/${runId}/confirm`, { method: "POST", json: { confirm, pick } });
+
+// True while the run waits on the user: a question, the grid, or the go-ahead to pay.
+export const waiting = (run: Run) =>
+  Boolean(run.question) ||
+  (Boolean(run.qualified?.length) && !run.selected) ||
+  (Boolean(run.picks?.length) && Boolean(run.selected) && run.confirmed === undefined);
 
 // One pacing tick: reveal the next found row, or mark the next row checked once its verdict is in.
 export function advance(run: Run): Run {

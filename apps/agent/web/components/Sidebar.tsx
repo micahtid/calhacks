@@ -1,5 +1,5 @@
 import type { Chat } from "@/lib/data";
-import { ChatIcon, PenIcon, ReceiptIcon, TrashIcon, WalletIcon } from "./Icons";
+import { BoltIcon, ChatIcon, PenIcon, ReceiptIcon, TrashIcon, WalletIcon } from "./Icons";
 import { Logo } from "./Logo";
 
 export type View = { kind: "new" } | { kind: "chat"; id: string } | { kind: "transactions" } | { kind: "settings" };
@@ -60,6 +60,12 @@ export function Sidebar({ chats, view, onNavigate, onDelete }: Props) {
 
       <div className="sb-spacer" />
       <nav className="nav">
+        {/* Automatic buying is off and locked for now: every purchase waits for the user to confirm it. */}
+        <label className="nav-item toggle-row" title="Coming Soon">
+          <BoltIcon />
+          <span className="truncate">Automatic</span>
+          <input className="switch" type="checkbox" role="switch" checked={false} disabled readOnly />
+        </label>
         <button className={active("settings")} onClick={() => onNavigate({ kind: "settings" })}>
           <WalletIcon />
           Settings

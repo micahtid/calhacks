@@ -106,25 +106,25 @@ async def checkout(client: httpx.AsyncClient, listing: dict, store: dict | None,
     if res.status_code != 402 or not res.headers.get("payment-required"):
         yield step(0, "failed", f"{name} answered {res.status_code} instead of asking for payment.")
         return
-    yield step(0, "done", f"Asked {name} to sell this exact listing.")
+    yield step(0, "done", f"Asked {name} for this listing.")
 
     required = b64json(res.headers["payment-required"])
     req = required["accepts"][0]
     amount = int(req["amount"]) / UNIT
-    yield step(1, "done", f"{name} asked for {amount:.2f} USDC to its published wallet.")
+    yield step(1, "done", f"{name} asked for {amount:.2f} USDC.")
 
     if problem := double_check(req, price, (store or {}).get("payTo"), max_price):
         yield step(2, "failed", f"Hunter stopped: {problem}.")
         return
-    limit = f"your ${max_price:.2f} limit" if max_price is not None else "the listing"
-    yield step(2, "done", f"The store, price, wallet and {limit} all match.")
+    yield step(2, "done", "Store, price, wallet and limit all match." if max_price is not None
+               else "Store, price and wallet all match.")
 
     key = os.environ.get("BUYER_PRIVATE_KEY")
     if not key:
-        yield step(3, "blocked", "No Hunter wallet key is set on the server, so Hunter stopped before paying.")
+        yield step(3, "blocked", "No wallet key is set, so nothing was paid.")
         return
     payload = sign_payment(key, required)
-    yield step(3, "done", f"{amount:.2f} USDC from your Hunter wallet, nothing more.")
+    yield step(3, "done", f"{amount:.2f} USDC from your Hunter wallet.")
 
     header = base64.b64encode(json.dumps(payload).encode()).decode()
     res = await client.post(url, json=body, headers={"PAYMENT-SIGNATURE": header})
@@ -136,10 +136,10 @@ async def checkout(client: httpx.AsyncClient, listing: dict, store: dict | None,
         return
     settlement = b64json(res.headers["payment-response"]) if res.headers.get("payment-response") else {}
     tx = settlement.get("transaction")
-    yield step(4, "done", "The USDC transfer was confirmed on Base Sepolia.")
+    yield step(4, "done", "Confirmed on Base Sepolia.")
 
     order = res.json()
-    yield step(5, "done", f"{name} confirmed order {order.get('orderId')}.")
+    yield step(5, "done", f"{name} confirmed the order.")
     yield {"type": "receipt", "item": listing.get("title"), "store": name, "amount": amount, "network": "Base Sepolia",
            "from": settlement.get("payer") or payload["payload"]["authorization"]["from"], "to": req["payTo"],
            "order": order.get("orderId"), "paidAt": datetime.now(UTC).isoformat(), "txHash": tx,
