@@ -382,7 +382,7 @@ Two layers decide whether the wallet may pay; both must say yes. Details: `gate/
   they don't match. Railway settings and the release procedure: `gates/README.md`.
 - **Gate archive** (`gates/`): every kept model with its own feature code, card and benchmark; `gates/CURRENT` is the
   deployed one (`r2-f0bfbd`: 91.8% accuracy, 88.1% of seen-family scams caught, 1.8% model false blocks on the
-  benchmark). `uv run --project gate gate-release export|install|verify`.
+  benchmark; full figures against the baseline in `gate/README.md`). `uv run --project gate gate-release export|install|verify`.
 
 ## Red-team loop
 
