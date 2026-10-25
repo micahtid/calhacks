@@ -132,12 +132,12 @@ def stream(events: AsyncIterator[dict]) -> StreamingResponse:
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-GATE_CONCURRENCY = 32  # Gate decisions at once. Each one waits on the store's page and 402, not on the Gate.
+GATE_CONCURRENCY = 32  # Gate screenings at once. Each takes milliseconds; this only bounds a search's burst.
 
 
 async def judged(query: str, max_per_store: int, max_price: float | None) -> AsyncIterator[dict]:
-    """The actor's search events, plus a `verdict` (GateDecision fields + store, key) from the Gate for each item
-    whose page loaded, or a skip for each page error. Decisions run GATE_CONCURRENCY at a time, so a verdict comes
+    """The actor's search events, plus a `verdict` (GateDecision fields + store, key) from the Gate's screening of
+    each item whose page loaded (gate.screen, with the page the actor read), or a skip for each page error. Decisions run GATE_CONCURRENCY at a time, so a verdict comes
     after its page but not always in page order, and every verdict comes before the search's done event."""
     out: asyncio.Queue[dict | None] = asyncio.Queue()
     limit = asyncio.Semaphore(GATE_CONCURRENCY)
@@ -146,7 +146,8 @@ async def judged(query: str, max_per_store: int, max_price: float | None) -> Asy
     async def verdict(event: dict) -> None:
         if event["type"] == "page":
             async with limit:
-                decision = await gate.judge(app.state.client, listings[event["store"], event["key"]], max_price)
+                decision = await gate.screen(app.state.client, listings[event["store"], event["key"]], event["page"],
+                                             max_price)
         else:
             decision = gate.unavailable(event["error"])
         await out.put({"type": "verdict", "store": event["store"], "key": event["key"], **decision})
@@ -599,6 +600,13 @@ async def chat(prompt: str = Query(min_length=1, max_length=1000),
 
             best = weighed[choice]["listing"]
             status, receipt = "stopped", None
+            # The Gate's full check, once, right before paying: it reads the page and the store's real 402 itself.
+            final = await gate.judge(client, best, limit)
+            if final["decision"] != "buy":
+                why = final.get("failed_rule") or final.get("error") or "the risk model"
+                yield pay.step(0, "failed", f"The Gate stopped this purchase ({why}).")
+                yield {"type": "end", "status": status}
+                return
             async for event in pay.checkout(client, best, stores.get(best["store"]), limit):
                 if event["type"] == "receipt":
                     event = {**event, "image": photo.get(id(best))}
