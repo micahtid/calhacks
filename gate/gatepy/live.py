@@ -35,6 +35,7 @@ from gatepy.page import extract_page
 CACHE_S = 300  # store.json and catalogs change rarely; prices are re-read from the 402 on every decision
 MEDIAN_MATCHES = 5  # closest title matches per known store
 TIMEOUT_S = 15
+POOL = 64  # above the service's concurrent requests (uvicorn runs sync endpoints on 40 threads), so 402s never queue
 SHIP_TO = {"name": "Gate check", "address": "1 Market St, San Francisco, CA"}  # the 402 comes before any order
 
 
@@ -62,7 +63,7 @@ class LiveStores:
         self._cache: dict[str, tuple[float, object]] = {}
         self._locks: dict[str, threading.Lock] = {}
         self._lock = threading.Lock()
-        self._pool = ThreadPoolExecutor(8)
+        self._pool = ThreadPoolExecutor(POOL)  # one 402 per decision in flight, so as many as decisions served at once
 
     @classmethod
     def from_env(cls) -> "LiveStores":
