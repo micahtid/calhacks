@@ -9,7 +9,24 @@ the listing the Gate fetched itself + references it looked up itself); the outpu
 | 1 | `layer1/` (TypeScript) | Fixed rules, never learned: 402 wallet matches `store.json`; a known wallet, or an unknown wallet priced within `unknown_seller_cap_usd` ($100); amount equals price; max price; spend remaining; network and asset allowlist; checkout item; product matches the mandate; 402 timeout |
 | 2 | `gatepy/` + `features/` (Python) | LightGBM risk score, run only when Layer 1 passes and only able to turn buy into skip. Monotone in price and trust signals, fixed threshold, top-3 reasons |
 
-## Deployed model: r2-f0bfbd
+## Deployed model: r3-be84bc
+
+The Gate service ships `r3-be84bc` (`../gates/CURRENT`): `r2-f0bfbd` plus one red-team round with the `store_clone`
+family, run after `r2-f0bfbd` let every mzn Official Outlet listing through on the live stores. Card:
+`../gates/r3-be84bc/CARD.md`.
+
+Live stores (the Gate service reading each listing itself, 5 searches, 25 listings per store):
+
+| Store | Listings | r2-f0bfbd skipped | r3-be84bc skipped |
+|---|---|---|---|
+| mzn, by, dpp (real) | 304 | 1.3% (3 timeouts, 1 `payment_coercion`) | 0% |
+| mzn Official Outlet (scam) | 105 | 0% | **100%** |
+
+Benchmark (the fixed 444-row test set, which has no store clones): accuracy 90.7% [88–94] (r2 91.8%), seen-family
+scams caught 85.6% [79–91] (88.1%), model false blocks 1.8% (1.8%), risk AUC 0.965 (0.954). The figures for `r2-f0bfbd`
+below are kept for comparison.
+
+## Previous model: r2-f0bfbd
 
 The Gate service ships `r2-f0bfbd` (`../gates/CURRENT`). It was promoted in round 2 of seed 1 of a three-seed red-team
 validation. It was the only candidate of 9 across the three seeds to beat the baseline (`r0-ac1d79`) under

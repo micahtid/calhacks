@@ -386,8 +386,8 @@ Two layers decide whether the wallet may pay; both must say yes. Details: `gate/
   they don't match. With `GATE_STORES` set it reads each listing from the live store itself (catalog, item page,
   `store.json`, the unpaid 402) and needs no database. Railway settings and the release procedure: `gates/README.md`.
 - **Gate archive** (`gates/`): every kept model with its own feature code, card and benchmark; `gates/CURRENT` is the
-  deployed one (`r2-f0bfbd`: 91.8% accuracy, 88.1% of seen-family scams caught, 1.8% model false blocks on the
-  benchmark; full figures against the baseline in `gate/README.md`). `uv run --project gate gate-release export|install|verify`.
+  deployed one (`r3-be84bc`: on the live stores it skipped 105/105 mzn Official Outlet listings and 0/304 real ones;
+  on the benchmark 90.7% accuracy and 1.8% model false blocks; full figures in `gate/README.md`). `uv run --project gate gate-release export|install|verify`.
 
 ## Red-team loop
 

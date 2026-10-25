@@ -1,4 +1,4 @@
-# Gate r2-f0bfbd (current)
+# Gate r2-f0bfbd (superseded)
 
 seed1, round 2 of the three-seed validation: the only candidate (1 of 9) to pass promotion against the baseline with ~25 validation scams per family. Adds payment_coercion, untrusted_deep_discount, review_paraphrase_mass and review_dup_long_frac.
 
